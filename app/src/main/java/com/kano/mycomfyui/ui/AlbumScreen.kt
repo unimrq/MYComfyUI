@@ -711,7 +711,7 @@ fun AlbumScreen(
                                         columns = GridCells.Fixed(3),
                                         modifier = Modifier
                                             .fillMaxSize(),
-                                        contentPadding = PaddingValues(top = 120.dp, bottom = 60.dp),
+                                        contentPadding = PaddingValues(top = 120.dp, bottom = 80.dp),
                                         verticalArrangement = Arrangement.spacedBy(1.dp),
                                         horizontalArrangement = Arrangement.spacedBy(1.dp)
                                     ) {
@@ -1052,7 +1052,7 @@ fun AlbumScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
+                            .height(64.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1325,7 +1325,7 @@ fun AlbumScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 64.dp)
+                    .padding(bottom = 72.dp)
                     .fillMaxWidth(0.8f)
                     .clip(RoundedCornerShape(16.dp)),
                 color = Color(0xFFECECEC).copy(alpha = 0.9f),
@@ -1590,16 +1590,19 @@ fun GridWithVerticalScrollHandleOverlay(
                     val totalRows = ceil(allItems.size / columns.toFloat())
                     val totalHeightPx = totalRows * rowHeightPx
 
-                    // ✅ 关键修正：scrollY 按可见高度比例映射
                     val scrollY = (handleOffset / (trackHeightPx - handleHeightPx)) * (totalHeightPx - trackHeightPx)
 
-                    // ✅ 计算目标索引
-                    val targetRow = (scrollY / rowHeightPx).toInt().coerceIn(0, totalRows.toInt() - 1)
+                    val targetRowF = scrollY / rowHeightPx
+                    val targetRow = targetRowF.toInt().coerceIn(0, totalRows.toInt() - 1)
+
+                    val rowOffset = ((targetRowF - targetRow) * rowHeightPx).toInt()
+
                     val targetIndex = targetRow * columns
 
                     scope.launch {
-                        gridState.scrollToItem(targetIndex)
+                        gridState.scrollToItem(targetIndex, rowOffset)
                     }
+
                 }
 
 
