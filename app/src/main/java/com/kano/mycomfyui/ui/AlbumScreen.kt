@@ -618,7 +618,7 @@ fun AlbumScreen(
 
                         fun getCoreName(name: String): String {
                             var base = name.substringBeforeLast(".")      // 去掉扩展名
-                            base = base.substringBefore("-脱衣")           // 截断 -脱衣 及之后
+                            base = base.substringBefore("-换衣")           // 截断 -换衣 及之后
                             base = base.replace(Regex("[ab]$"), "")       // 去掉末尾 a 或 b
                             return base
                         }
