@@ -164,7 +164,7 @@ fun AlbumScreen(
     var multiSelectMode by remember { mutableStateOf(false) }
     val selectedImages = remember { mutableStateListOf<String>() }
     val pathOptions = listOf(
-        "最新" to "动图\\最新",
+        "最新" to "动图/最新",
         "修图" to "修图",
         "素材" to "素材",
         "动图" to "动图",
@@ -400,11 +400,11 @@ fun AlbumScreen(
                     "根目录"
                 } else {
                     // 用反斜杠分割路径
-                    val parts = currentPath.split('\\').filter { it.isNotBlank() }
+                    val parts = currentPath.split('/').filter { it.isNotBlank() }
                     val name = when {
                         parts.isEmpty() -> "根目录"
                         parts.size == 1 -> parts.last()
-                        else -> parts.takeLast(2).joinToString("\\")  // 取最后两级
+                        else -> parts.takeLast(2).joinToString("/")  // 取最后两级
                     }
                     if (name.length > 12) name.take(12) + "…" else name
                 }
@@ -446,7 +446,7 @@ fun AlbumScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (previewImagePath == null){
-                val displayPath = currentPath.split("\\")
+                val displayPath = currentPath.split("/")
                     .takeLast(2)
                     .joinToString("·")
 
@@ -1217,6 +1217,7 @@ fun AlbumScreen(
                                 thumbnailUrl = f.thumbnail_url.toString(),
                                 args = emptyMap()
                             )
+                            Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
                         } else {
                             RetrofitClient.getApi().generateImage(
                                 type = "换衣_蒙版",
@@ -1224,6 +1225,7 @@ fun AlbumScreen(
                                 thumbnailUrl = f.thumbnail_url.toString(),
                                 args = emptyMap()
                             )
+                            Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()

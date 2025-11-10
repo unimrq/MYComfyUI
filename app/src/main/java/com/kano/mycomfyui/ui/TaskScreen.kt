@@ -203,12 +203,16 @@ fun TaskScreen(
                             }
 
                             task.start_time?.let { datetime ->
+                                // 把 "2025-11-10T22:29:04.999765" 转成 "2025-11-10 22:29:04"
+                                val formatted = datetime.replace("T", " ").split(".")[0]
+
                                 Text(
-                                    text = "时间：$datetime",
+                                    text = "时间：$formatted",
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.padding(top = 4.dp)
                                 )
                             }
+
 
                         }
 
