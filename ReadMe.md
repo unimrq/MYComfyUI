@@ -4,6 +4,7 @@
 <img src="assets/img_4.png" width="300">
 <img src="assets/img_2.png" width="300">
 <img src="assets/img_1.png" width="300">
+
 # 功能
 1. 本地图片展示与管理；
 2. ComfyUI接口调用；
