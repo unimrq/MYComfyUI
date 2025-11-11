@@ -1,7 +1,9 @@
 # 简介
 这是一个智能相册应用，可以方便地管理和浏览本地照片，集成了 ComfyUI 接口服务，让使用者能够快速调用 AI 生成或处理图像的功能。
 # 预览
-| ![](assets/img_4.png) | ![](assets/img_2.png) | ![](assets/img_1.png) |
+<img src="assets/img_4.png" width="300">
+<img src="assets/img_2.png" width="300">
+<img src="assets/img_1.png" width="300">
 # 功能
 1. 本地图片展示与管理；
 2. ComfyUI接口调用；
