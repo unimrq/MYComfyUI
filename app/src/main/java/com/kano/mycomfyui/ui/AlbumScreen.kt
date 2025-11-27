@@ -61,6 +61,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -94,6 +95,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -174,6 +176,8 @@ fun AlbumScreen(
     var generateThumbnailUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var showNudeSheet by remember { mutableStateOf(false) }
     var showEditSheet by remember { mutableStateOf(false) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     var readyToDisplay by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -198,6 +202,9 @@ fun AlbumScreen(
     val imageList = remember { mutableStateListOf<String>() }
     val thumbList = remember { mutableStateListOf<String>() }
     val fileList = remember { mutableStateListOf<String>() }
+    // 剪切板：存放待移动的文件
+    var cutList by remember { mutableStateOf<List<String>>(emptyList()) }
+    var cutSourceDir by remember { mutableStateOf("") }
     val refreshState = rememberPullToRefreshState()
     fun saveFolderCache(path: String, content: FolderContent) {
         val json = gson.toJson(content)
@@ -496,7 +503,7 @@ fun AlbumScreen(
                                 }
                             } else {
                                 IconButton(onClick = {
-                                    imagePickerLauncher.launch("image/*")
+                                    showAddSheet = true
                                 }) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
@@ -574,15 +581,22 @@ fun AlbumScreen(
             }
         },
     ) {
+        val configuration = LocalConfiguration.current
+        val density = LocalDensity.current
+        val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+        val swipeThreshold = screenWidthPx / 4f
+
         Box (
+
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
                 .pointerInput(currentTab, multiSelectMode) {
+
                     if (!multiSelectMode) { // 多选模式下不响应滑动
                         detectHorizontalDragGestures { change, dragAmount ->
                             val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
-                            if (dragAmount > 50 && currentIndex > 0) { // 向右
+                            if (dragAmount > 30 && currentIndex > 0) { // 向右
                                 val newTab = pathOptions[currentIndex - 1]
                                 currentTab = newTab.first
                                 rememberDirectory(
@@ -593,7 +607,7 @@ fun AlbumScreen(
                                 scope.launch {
                                     refreshFolder()
                                 }
-                            } else if (dragAmount < -50 && currentIndex < pathOptions.size - 1) { // 向左
+                            } else if (dragAmount < -30 && currentIndex < pathOptions.size - 1) { // 向左
                                 val newTab = pathOptions[currentIndex + 1]
                                 currentTab = newTab.first
                                 rememberDirectory(
@@ -972,7 +986,7 @@ fun AlbumScreen(
                         if (previewImagePath != null) {
                             var isImageListReady by remember { mutableStateOf(false) }
                             val filteredFiles = sortedFiles.filter {
-                                it.file_url?.matches(Regex(".*\\.(png|jpg|jpeg|gif|mp4)$", RegexOption.IGNORE_CASE)) == true
+                                it.file_url?.matches(Regex(".*\\.(png|jpg|jpeg|gif|mp4|bmp)$", RegexOption.IGNORE_CASE)) == true
                             }
 
                             LaunchedEffect(filteredFiles) {
@@ -1199,6 +1213,8 @@ fun AlbumScreen(
         creativeMode: Boolean
     ) {
 
+        var submitted = false
+
         selectedImages.forEach { path ->
             val file = folderContent?.files?.find {
                 it.file_url == path || it.path == path
@@ -1217,7 +1233,6 @@ fun AlbumScreen(
                                 thumbnailUrl = f.thumbnail_url.toString(),
                                 args = emptyMap()
                             )
-                            Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
                         } else {
                             RetrofitClient.getApi().generateImage(
                                 type = "换衣_蒙版",
@@ -1225,8 +1240,9 @@ fun AlbumScreen(
                                 thumbnailUrl = f.thumbnail_url.toString(),
                                 args = emptyMap()
                             )
-                            Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
                         }
+                        submitted = true
+
                     } catch (e: Exception) {
                         e.printStackTrace()
                         Toast.makeText(context, "网络错误: ${f.name}", Toast.LENGTH_SHORT).show()
@@ -1234,6 +1250,12 @@ fun AlbumScreen(
                 }
             }
         }
+
+        // 🚀 在循环结束后只弹一次
+        if (!creativeMode && submitted) {
+            Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
+        }
+
         clearSelection()
         refreshFolder()
     }
@@ -1400,6 +1422,76 @@ fun AlbumScreen(
                         multiSelectMode = false
                     }
 
+                    // --- 剪切 / 粘贴 ---
+                    IconActionButton(
+                        iconPainter = painterResource(
+                            id = if (cutList.isEmpty()) R.drawable.cut else R.drawable.paste
+                        ),
+                        tint = Color.Black,
+                        label = if (cutList.isEmpty()) "剪切" else "粘贴",
+                        contentDescription = if (cutList.isEmpty()) "剪切" else "粘贴",
+                        iconSize = 26.dp
+                    ) {
+                        if (cutList.isEmpty()) {
+                            // ---------------------------------------
+                            //             执行“剪切”
+                            // ---------------------------------------
+                            if (selectedImages.isEmpty()) {
+                                Toast.makeText(context, "未选择任何图片", Toast.LENGTH_SHORT).show()
+                                return@IconActionButton
+                            }
+
+                            cutList = selectedImages.toList()
+                            cutSourceDir = currentPath
+
+                            Toast.makeText(context, "已剪切 ${cutList.size} 项", Toast.LENGTH_SHORT).show()
+                            selectedImages.clear()
+                            multiSelectMode = false
+
+                        } else {
+                            // ---------------------------------------
+                            //             执行“粘贴”
+                            // ---------------------------------------
+                            val targetDir = currentPath
+
+                            if (targetDir == cutSourceDir) {
+                                Toast.makeText(context, "目标文件夹与原位置相同", Toast.LENGTH_SHORT).show()
+                                return@IconActionButton
+                            }
+
+                            scope.launch {
+                                cutList.forEach { fileUrl ->
+
+                                    val file = folderContent?.files?.find {
+                                        it.file_url == fileUrl || it.path == fileUrl
+                                    }
+
+                                    file?.let { f ->
+                                        try {
+                                            val src = f.path ?: f.file_url!!
+                                            val dest = targetDir
+
+                                            RetrofitClient.getApi().moveFile(src, dest)
+
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            Toast.makeText(context, "移动失败: ${f.name}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+
+                                // 清空剪切板
+                                cutList = emptyList()
+                                cutSourceDir = ""
+
+                                Toast.makeText(context, "已完成移动", Toast.LENGTH_SHORT).show()
+
+                                // 刷新当前文件夹
+                                refreshFolder()
+                            }
+                        }
+                    }
+
                     // --- 下载 ---
                     // 在 AlbumScreen 内
                     var downloadDialogVisible by remember { mutableStateOf(false) }
@@ -1466,22 +1558,144 @@ fun AlbumScreen(
                     )
 
                     // --- 删除 ---
-                    IconActionButton(
-                        iconPainter = painterResource(id = R.drawable.delete),
-                        tint = Color.Black,
-                        label = "删除",
-                        contentDescription = "删除"
-                    ) {
-                        if (selectedImages.isNotEmpty()) {
-                            showDeleteDialog = true
-                        } else {
-                            Toast.makeText(context, "没有可删除的文件", Toast.LENGTH_SHORT).show()
+                    if (cutList.isEmpty()){
+                        IconActionButton(
+                            iconPainter = painterResource(id = R.drawable.delete),
+                            tint = Color.Black,
+                            label = "删除",
+                            contentDescription = "删除"
+                        ) {
+                            if (selectedImages.isNotEmpty()) {
+                                showDeleteDialog = true
+                            } else {
+                                Toast.makeText(context, "没有可删除的文件", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        IconActionButton(
+                            iconPainter = painterResource(id = R.drawable.delete),
+                            tint = Color.Black,
+                            label = "清空",
+                            contentDescription = "清空"
+                        ) {
+                            // 清空剪切板
+                            cutList = emptyList()
+                            cutSourceDir = ""
+
+                            Toast.makeText(context, "已清空", Toast.LENGTH_SHORT).show()
                         }
                     }
+
                 }
             }
         }
     }
+
+    if (showAddSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAddSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+
+                    // 新增图片
+                    Button(
+                        onClick = {
+                            showAddSheet = false
+                            imagePickerLauncher.launch("image/*")
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("新增图片")
+                    }
+
+                    // 新增文件夹
+                    Button(
+                        onClick = {
+                            showAddSheet = false
+                            showCreateFolderDialog = true
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xffb3424a)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("新增文件夹")
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+
+    if (showCreateFolderDialog) {
+        var folderName by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showCreateFolderDialog = false },
+            title = { Text("新建文件夹") },
+            text = {
+                OutlinedTextField(
+                    value = folderName,
+                    onValueChange = { folderName = it },
+                    label = { Text("文件夹名称") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (folderName.isNotBlank()) {
+                            showCreateFolderDialog = false
+
+                            scope.launch {
+                                try {
+                                    RetrofitClient.getApi().createFolder(
+                                        parent = currentPath,
+                                        name = folderName
+                                    )
+
+                                    Toast.makeText(context, "文件夹已创建", Toast.LENGTH_SHORT).show()
+
+                                    // 刷新文件夹
+                                    refreshFolder()
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    Toast.makeText(context, "创建失败", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateFolderDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+
 }
 
 

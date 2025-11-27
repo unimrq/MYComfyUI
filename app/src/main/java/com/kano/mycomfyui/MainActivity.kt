@@ -161,6 +161,26 @@ class MainActivity : ComponentActivity() {
                                                 isUnlockedTemporary = false
                                                 saveUnlockState(this@MainActivity, false)
                                             }
+                                            "scan" -> {
+                                                scope.launch {
+                                                    try {
+                                                        RetrofitClient.getApi().scanFolder()
+                                                        Toast.makeText(this@MainActivity, "扫描已开始", Toast.LENGTH_SHORT).show()
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(this@MainActivity, "扫描失败：${e.message}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
+                                            "detect" -> {
+                                                scope.launch {
+                                                    try {
+                                                        RetrofitClient.getApi().detectFolder()
+                                                        Toast.makeText(this@MainActivity, "检测已开始", Toast.LENGTH_SHORT).show()
+                                                    } catch (e: Exception) {
+                                                        Toast.makeText(this@MainActivity, "检测失败：${e.message}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 )
@@ -235,7 +255,7 @@ fun DeepSeekHomeScreen(
                 message = message,
                 onMessageChange = { message = it },
                 onSend = {
-                    if (message.lowercase() in listOf("unlock", "lock")) {
+                    if (message.lowercase() in listOf("unlock", "lock", "scan", "detect")) {
                         onCommand(message)
                     }
                     message = ""
