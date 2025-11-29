@@ -60,7 +60,7 @@ fun getSavedAddress(context: Context): String? {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingScreen() {
+fun AddressSettingScreen() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -193,7 +193,7 @@ fun SettingScreen() {
                 OutlinedTextField(
                     value = newAddress,
                     onValueChange = { newAddress = it },
-                    label = { Text("例如：http://192.168.1.1:8000/") },
+                    label = { Text("请输入完整地址，例：http://192.168.1.1:8000/") },
                     modifier = Modifier.fillMaxWidth()
                 )
             },

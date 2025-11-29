@@ -62,7 +62,9 @@ import androidx.navigation.compose.rememberNavController
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import com.kano.mycomfyui.ui.AlbumScreen
-import com.kano.mycomfyui.ui.SettingScreen
+import com.kano.mycomfyui.ui.AddressSettingScreen
+import com.kano.mycomfyui.ui.FunctionSettingScreen
+import com.kano.mycomfyui.ui.HelpScreen
 import com.kano.mycomfyui.ui.TaskScreen
 import com.kano.mycomfyui.ui.theme.MYComfyUITheme
 import kotlinx.coroutines.CoroutineScope
@@ -93,7 +95,7 @@ class MainActivity : ComponentActivity() {
 
         fun loadUnlockState(context: Context): Boolean {
             val prefs = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
-            return prefs.getBoolean("is_unlocked", false)
+            return prefs.getBoolean("is_unlocked", true)
         }
 
         enableEdgeToEdge(
@@ -199,8 +201,16 @@ class MainActivity : ComponentActivity() {
                                 })
                         }
 
-                        composable("settings") {
-                            SettingScreen()
+                        composable("address_settings") {
+                            AddressSettingScreen()
+                        }
+
+                        composable("function_settings") {
+                            FunctionSettingScreen()
+                        }
+
+                        composable("help") {
+                            HelpScreen()
                         }
                     }
                 }
