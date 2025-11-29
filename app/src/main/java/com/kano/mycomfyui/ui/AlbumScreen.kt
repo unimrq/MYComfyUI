@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -560,6 +561,7 @@ fun AlbumScreen(
                                     onClick = {
                                         expanded = false
                                         navController.navigate("address_settings")
+                                        currentPath = "素材"
                                     }
                                 )
 
@@ -738,7 +740,6 @@ fun AlbumScreen(
                             ) {
                                 GridWithVerticalScrollHandleOverlay(allItems = allItems, columns = 3, handleHeight = 40.dp, gridState = gridState) {
 
-
                                     LazyVerticalGrid(
                                         state = gridState,
                                         columns = GridCells.Fixed(3),
@@ -748,7 +749,6 @@ fun AlbumScreen(
                                         verticalArrangement = Arrangement.spacedBy(1.dp),
                                         horizontalArrangement = Arrangement.spacedBy(1.dp)
                                     ) {
-
                                         items(allItems, key = { it.path }) { file ->
                                             val fullUrl = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
                                             Column(
@@ -932,6 +932,7 @@ fun AlbumScreen(
                                                 }
                                             }
                                         }
+
                                     }
                                 }
                             }
@@ -1793,8 +1794,6 @@ fun GridWithVerticalScrollHandleOverlay(
     trackPaddingBottom: Dp = 96.dp, // 轨道底部 padding
     content: @Composable (LazyGridState) -> Unit
 ) {
-    if (allItems.isEmpty()) return
-
     val scope = rememberCoroutineScope()
     var handleOffset by remember { mutableStateOf(0f) }
     var trackHeightPx by remember { mutableStateOf(0f) }
@@ -1810,109 +1809,112 @@ fun GridWithVerticalScrollHandleOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .onGloballyPositioned { coords ->
-                    gridWidthPx = coords.size.width.toFloat()
-                }
+                .onGloballyPositioned { coords -> gridWidthPx = coords.size.width.toFloat() }
         ) {
-            content(gridState)
+            if (allItems.isEmpty()) {
+                // 空数据占位
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 200.dp, bottom = 80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "无文件夹或媒体文件",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                content(gridState) // 渲染原来的 LazyVerticalGrid
+            }
         }
 
         // ------------------ 滑块轨道 ------------------
-        Box(
-            modifier = Modifier
-                .width(handleWidth)
-                .fillMaxHeight()
-                .align(Alignment.CenterEnd)
-                .onGloballyPositioned { coords ->
-                    trackHeightPx = coords.size.height.toFloat() - paddingTopPx - paddingBottomPx
-                }
-        ) {
-            if (showHandle) {
-                val dragState = rememberDraggableState { delta ->
-                    isDragging = true
-                    handleOffset = (handleOffset + delta)
-                        .coerceIn(0f, (trackHeightPx - handleHeightPx).coerceAtLeast(0f))
+        if (allItems.isNotEmpty()) { // 只有有数据才显示滑块
+            Box(
+                modifier = Modifier
+                    .width(handleWidth)
+                    .fillMaxHeight()
+                    .align(Alignment.CenterEnd)
+                    .onGloballyPositioned { coords -> trackHeightPx = coords.size.height.toFloat() - paddingTopPx - paddingBottomPx }
+            ) {
+                if (showHandle) {
+                    val dragState = rememberDraggableState { delta ->
+                        isDragging = true
+                        handleOffset = (handleOffset + delta)
+                            .coerceIn(0f, (trackHeightPx - handleHeightPx).coerceAtLeast(0f))
 
-                    val rowHeightPx = gridWidthPx / columns
-                    val totalRows = ceil(allItems.size / columns.toFloat())
-                    val totalHeightPx = totalRows * rowHeightPx
+                        val rowHeightPx = gridWidthPx / columns
+                        val totalRows = ceil(allItems.size / columns.toFloat())
+                        val totalHeightPx = totalRows * rowHeightPx
 
-                    val scrollY = (handleOffset / (trackHeightPx - handleHeightPx)) * (totalHeightPx - trackHeightPx)
+                        val scrollY = (handleOffset / (trackHeightPx - handleHeightPx)) * (totalHeightPx - trackHeightPx)
+                        val targetRowF = scrollY / rowHeightPx
+                        val targetRow = targetRowF.toInt().coerceIn(0, totalRows.toInt() - 1)
+                        val rowOffset = ((targetRowF - targetRow) * rowHeightPx).toInt()
+                        val targetIndex = targetRow * columns
 
-                    val targetRowF = scrollY / rowHeightPx
-                    val targetRow = targetRowF.toInt().coerceIn(0, totalRows.toInt() - 1)
-
-                    val rowOffset = ((targetRowF - targetRow) * rowHeightPx).toInt()
-
-                    val targetIndex = targetRow * columns
-
-                    scope.launch {
-                        gridState.scrollToItem(targetIndex, rowOffset)
+                        scope.launch { gridState.scrollToItem(targetIndex, rowOffset) }
                     }
 
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(0, (handleOffset + paddingTopPx).roundToInt()) }
+                            .width(handleWidth)
+                            .height(handleHeight)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp),
+                                clip = false
+                            )
+                            .background(
+                                color = Color.White,
+                                shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+                            )
+                            .draggable(
+                                orientation = Orientation.Vertical,
+                                state = dragState,
+                                onDragStopped = { isDragging = false }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.sort),
+                            contentDescription = "滑块",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
 
-
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(0, (handleOffset + paddingTopPx).roundToInt()) }
-                        .width(handleWidth)
-                        .height(handleHeight)
-                        .shadow(
-                            elevation = 8.dp, // 阴影高度，可调
-                            shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp),
-                            clip = false
-                        )
-                        .background(
-                            color = Color.White,
-                            shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
-                        )
-                        .draggable(
-                            orientation = Orientation.Vertical,
-                            state = dragState,
-                            onDragStopped = { isDragging = false }
-                        ),
-                    contentAlignment = Alignment.Center
+                // ------------------ 同步 Grid 滚动 ------------------
+                LaunchedEffect(
+                    gridState.firstVisibleItemIndex,
+                    gridState.firstVisibleItemScrollOffset,
+                    gridWidthPx,
+                    trackHeightPx
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.sort),
-                        contentDescription = "滑块",
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-
-            // ------------------ 同步 Grid 滚动 ------------------
-            LaunchedEffect(
-                gridState.firstVisibleItemIndex,
-                gridState.firstVisibleItemScrollOffset,
-                gridWidthPx,
-                trackHeightPx
-            ) {
-                if (gridWidthPx > 0f && trackHeightPx > 0f) {
-                    val rowHeightPx = gridWidthPx / columns
-                    val totalRows = ceil(allItems.size / columns.toFloat())
-                    val totalHeightPx = totalRows * rowHeightPx
-
-                    // 内容不足3屏时隐藏滑块
-                    showHandle = totalHeightPx > 3 * trackHeightPx
-
-                    if (showHandle) {
-                        if (!isDragging) {
+                    if (gridWidthPx > 0f && trackHeightPx > 0f) {
+                        val rowHeightPx = gridWidthPx / columns
+                        val totalRows = ceil(allItems.size / columns.toFloat())
+                        val totalHeightPx = totalRows * rowHeightPx
+                        showHandle = totalHeightPx > 3 * trackHeightPx
+                        if (showHandle && !isDragging) {
                             val scrollY =
                                 (gridState.firstVisibleItemIndex / columns) * rowHeightPx +
                                         gridState.firstVisibleItemScrollOffset.toFloat()
-                            handleOffset =
-                                (scrollY / (totalHeightPx - trackHeightPx)) * (trackHeightPx - handleHeightPx)
+                            handleOffset = (scrollY / (totalHeightPx - trackHeightPx)) * (trackHeightPx - handleHeightPx)
+                        } else {
+                            handleOffset = 0f
                         }
-                    } else {
-                        handleOffset = 0f
                     }
                 }
             }
         }
     }
 }
+
 
 
 @Composable

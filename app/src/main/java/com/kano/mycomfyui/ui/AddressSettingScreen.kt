@@ -1,6 +1,7 @@
 package com.kano.mycomfyui.ui
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +19,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
+import com.google.gson.Gson
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.launch
@@ -135,6 +138,7 @@ fun AddressSettingScreen() {
                                 Checkbox(
                                     checked = isSelected,
                                     onCheckedChange = { isChecked ->
+                                        Toast.makeText(context, "请重新启动App", Toast.LENGTH_SHORT).show()
                                         if (isChecked) {
                                             selectedAddress = address
 
@@ -154,6 +158,7 @@ fun AddressSettingScreen() {
                                         }
                                     }
                                 )
+
                                 Text(
                                     text = address,
                                     color = Color.Black,
@@ -193,7 +198,7 @@ fun AddressSettingScreen() {
                 OutlinedTextField(
                     value = newAddress,
                     onValueChange = { newAddress = it },
-                    label = { Text("请输入完整地址，例：http://192.168.1.1:8000/") },
+                    label = { Text("请输入完整地址") },
                     modifier = Modifier.fillMaxWidth()
                 )
             },
