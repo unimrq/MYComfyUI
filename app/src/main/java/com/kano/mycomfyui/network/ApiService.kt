@@ -69,8 +69,8 @@ interface ApiService {
 
     /** 数据模型：前端使用的词条对象 */
     data class PromptItem(
-        val title: String,
-        val text: String
+        val title: String = "",
+        val text: String = ""
     )
 
     /** 获取快捷词条列表，返回 title + text */

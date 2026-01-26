@@ -1,6 +1,7 @@
 package com.kano.mycomfyui.ui
 
 import android.annotation.SuppressLint
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -29,35 +30,64 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import coil.ImageLoader
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.decode.ImageDecoderDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.ui.PlayerView
-import com.google.android.exoplayer2.upstream.DefaultDataSource
-import com.google.android.exoplayer2.upstream.cache.CacheDataSink
-import com.google.android.exoplayer2.upstream.cache.CacheDataSource
 import com.kano.mycomfyui.MyApp
+import com.kano.mycomfyui.network.OkHttpProvider
 import kotlin.math.abs
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import okhttp3.OkHttpClient
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import com.kano.mycomfyui.network.ServerConfig
 
+
+@OptIn(UnstableApi::class)
+@SuppressLint("RememberReturnType")
 @Composable
-fun CachedVideoPlayer(videoPath: String) {
+fun CachedVideoPlayer(
+    videoPath: String,
+    secretKey: String,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
+
     val exoPlayer = remember {
+        // 1️⃣ OkHttpClient 带 X-Secret Header
+        val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val requestBuilder = chain.request().newBuilder()
+                // 仅网络 URL 才加 Header
+                if (videoPath.startsWith("http")) {
+                    requestBuilder.addHeader("X-Secret", secretKey)
+                }
+                chain.proceed(requestBuilder.build())
+            }
+            .build()
+
+        // 2️⃣ OkHttpDataSource.Factory
+        val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+
+        // 3️⃣ CacheDataSource.Factory
         val cacheFactory = CacheDataSource.Factory()
-            .setCache(MyApp.simpleCache)
-            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context))
+            .setCache(MyApp.simpleCache) // 你的缓存对象
+            .setUpstreamDataSourceFactory(okHttpDataSourceFactory)
             .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(MyApp.simpleCache))
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
+        // 4️⃣ 创建 ExoPlayer
         ExoPlayer.Builder(context)
-            .setMediaSourceFactory(
-                com.google.android.exoplayer2.source.DefaultMediaSourceFactory(cacheFactory)
-            )
+            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheFactory))
             .build().apply {
                 setMediaItem(MediaItem.fromUri(videoPath))
                 repeatMode = ExoPlayer.REPEAT_MODE_ONE
@@ -66,21 +96,27 @@ fun CachedVideoPlayer(videoPath: String) {
             }
     }
 
+    // 自动释放
     DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
+        onDispose { exoPlayer.release() }
     }
 
-    AndroidView(
-        factory = { ctx ->
-            PlayerView(ctx).apply {
-                player = exoPlayer
-                useController = true
-            }
-        },
-        modifier = Modifier.fillMaxSize()
-    )
+    // Compose UI
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
 }
 
 
@@ -155,7 +191,7 @@ fun ImageDetailScreen(
                         }
 
                         // 下滑关闭
-                        if (dragAccumulation.y > 200f) {
+                        if (dragAccumulation.y > 100f) {
                             onClose()
                             dragAccumulation = Offset.Zero
                         }
@@ -166,7 +202,9 @@ fun ImageDetailScreen(
                 // ✅ 双击放大/还原
                 detectTapGestures(
                     onTap = {
-                        onGenerateClick?.invoke(imagePaths[currentIndex])
+                        if(!isVideo){
+                            onGenerateClick?.invoke(imagePaths[currentIndex])
+                        }
                     },
                     onDoubleTap = {
                         if (scale > 1f) {
@@ -181,7 +219,11 @@ fun ImageDetailScreen(
     ) {
         if (isVideo) {
             Box(modifier = Modifier.fillMaxSize()) {
-                CachedVideoPlayer(imagePath)
+                CachedVideoPlayer(
+                    imagePath,
+                    secretKey = ServerConfig.secret,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
         else {
@@ -204,7 +246,7 @@ fun ImageDetailScreen(
 
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(imagePath)                 // 原图
+                        .data(imagePath)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .size(Size.ORIGINAL)
@@ -214,6 +256,7 @@ fun ImageDetailScreen(
                             }
                         }
                         .build(),
+//                    imageLoader = imageLoader,
                     contentDescription = "大图",
                     contentScale = ContentScale.Fit,
                     modifier = Modifier
@@ -235,6 +278,7 @@ fun ImageDetailScreen(
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .size(Size.ORIGINAL)
                                     .build(),
+//                                imageLoader = imageLoader,
                                 contentDescription = "缩略图",
                                 contentScale = ContentScale.Fit,
                                 modifier = Modifier.fillMaxSize()

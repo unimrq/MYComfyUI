@@ -74,11 +74,13 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
 
     // ExoPlayer
-    implementation(libs.exoplayer)
-    implementation(libs.exoplayer.core)
-    implementation(libs.exoplayer.ui)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.datasource.okhttp)
+    implementation(libs.okhttp)
+    implementation(libs.androidx.media3.ui)
 
     implementation(libs.androidx.navigation.compose)
 
     implementation(libs.androidx.activity.ktx) // ComponentActivity 的 Kotlin 扩展
+    implementation(libs.accompanist.systemuicontroller)
 }

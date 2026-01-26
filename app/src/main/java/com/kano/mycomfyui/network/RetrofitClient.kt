@@ -1,16 +1,35 @@
 package com.kano.mycomfyui.network
 
+import android.content.Context
+import android.util.Log
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+
+
+object OkHttpProvider {
+
+    fun create(context: Context): OkHttpClient {
+        return OkHttpClient.Builder()
+            .addInterceptor(AuthInterceptor(context))
+            .build()
+    }
+}
+
 
 object RetrofitClient {
 
     @Volatile
     private var retrofit: Retrofit? = null
+    private lateinit var appContext: Context
 
     // 每次获取 ApiService 时都使用最新 Retrofit
     fun getApi(): ApiService {
         return getRetrofit().create(ApiService::class.java)
+    }
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
     }
 
     private fun getRetrofit(): Retrofit {
@@ -28,9 +47,13 @@ object RetrofitClient {
 
     private fun buildRetrofit(): Retrofit {
         return Retrofit.Builder()
-            .baseUrl(ServerConfig.baseUrl) // 一定要保证末尾 "/"
+            .baseUrl(ServerConfig.baseUrl)
+            .client(OkHttpProvider.create(appContext))
             .addConverterFactory(GsonConverterFactory.create())
             .build()
     }
+
 }
+
+
 

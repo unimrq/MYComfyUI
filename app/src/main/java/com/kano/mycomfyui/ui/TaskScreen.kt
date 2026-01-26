@@ -153,16 +153,19 @@ fun TaskScreen(
                             .padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // 左侧图片，裁剪为正方形
-                        AsyncImage(
-                            model = "${ServerConfig.baseUrl}${task.thumbnailUrl}",
-                            contentDescription = "任务图片",
-                            modifier = Modifier
-                                .size(108.dp)
-                                .padding(end = 0.dp),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop // 裁剪
-                        )
-                        Spacer(modifier = Modifier.padding(8.dp))
+                        if (task.task_type != "文生图"){
+                            // 左侧图片，裁剪为正方形
+                            AsyncImage(
+                                model = "${ServerConfig.baseUrl}${task.thumbnailUrl}",
+                                contentDescription = "任务图片",
+                                modifier = Modifier
+                                    .size(108.dp)
+                                    .padding(end = 0.dp),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop // 裁剪
+                            )
+                            Spacer(modifier = Modifier.padding(8.dp))
+                        }
+
                         // 右侧文字左对齐
                         Column(
                             modifier = Modifier

@@ -1,7 +1,6 @@
 package com.kano.mycomfyui.ui
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.ContentValues
 import android.content.Context
 import android.content.SharedPreferences
@@ -40,13 +39,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -59,6 +59,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -84,12 +85,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -110,13 +109,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.zIndex
 import androidx.core.content.edit
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.navigation.NavHostController
+import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -124,31 +122,34 @@ import com.google.gson.Gson
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
 import com.kano.mycomfyui.data.FolderContent
+import com.kano.mycomfyui.network.OkHttpProvider
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.text.Collator
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, FlowPreview::class)
 @Composable
 fun AlbumScreen(
-    paddingValues: PaddingValues,
     onExitApp: () -> Unit,
     navController: NavHostController,
     onLockClick: () -> Unit,
@@ -168,11 +169,8 @@ fun AlbumScreen(
     var multiSelectMode by remember { mutableStateOf(false) }
     val selectedImages = remember { mutableStateListOf<String>() }
     val selectedImagesPath = remember { mutableStateListOf<String>() }
-    val pathOptions = listOf(
-        "修图" to "修图",
-        "素材" to "素材",
-        "动图" to "动图",
-        )
+
+
     var currentTab by rememberSaveable { mutableStateOf("素材") }
     var generateImageUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var generateThumbnailUrls by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -183,19 +181,10 @@ fun AlbumScreen(
     val gridState = rememberLazyGridState()
     var readyToDisplay by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
-    val topBarColor = remember { mutableStateOf(Color.Black) }
-    val maskVisible = remember { mutableStateOf(0f) }
-
-    val maskHeight = 100.dp
-    val maskTriggerPx = with(LocalDensity.current) { 140.dp.toPx() }
-    val maskHeightPx = with(LocalDensity.current) { maskHeight.toPx() }
-    val spacerHeightPx = with(LocalDensity.current) { 120.dp.toPx() } // Grid 上方 Spacer
-    val thresholdPx = with(LocalDensity.current) { 170.dp.toPx() }
     val scrollPositions = remember {
         mutableStateMapOf<String, Pair<Int, Int>>()
     }
     val view = LocalView.current
-    val window = (view.context as Activity).window
     val currentImageIndex = remember { mutableStateOf(0) }
     var progressVisible by remember { mutableStateOf(false) }
     var currentFileName by remember { mutableStateOf("") }
@@ -210,6 +199,25 @@ fun AlbumScreen(
     val refreshState = rememberPullToRefreshState()
     val videoEnabled = loadVideoGenEnabled(context)
     val maskEnabled = loadMaskClothesEnabled(context)
+    val text2imgEnabled = loadText2ImgEnabled(context)
+    var showTextInputDialog by remember { mutableStateOf(false) }
+    var inputText by remember { mutableStateOf("") }
+
+    val pathOptions = if (text2imgEnabled) {
+        listOf(
+            "修图" to "修图",
+            "素材" to "素材",
+            "动图" to "动图",
+            "生图" to "生图"
+        )
+    } else {
+        listOf(
+            "修图" to "修图",
+            "素材" to "素材",
+            "动图" to "动图"
+        )
+    }
+
     fun saveFolderCache(path: String, content: FolderContent) {
         val json = gson.toJson(content)
         prefs.edit { putString(path, json) }
@@ -244,7 +252,7 @@ fun AlbumScreen(
             // 构造 Multipart
             val requestFile = file.asRequestBody("image/*".toMediaType())
             val body = MultipartBody.Part.createFormData("file", file.name, requestFile)
-            val pathBody = RequestBody.create("text/plain".toMediaType(), currentPath)
+            val pathBody = currentPath.toRequestBody("text/plain".toMediaType())
 
             // 发起上传请求并解析响应
             val response = RetrofitClient.getApi().uploadImage(pathBody, body)
@@ -263,6 +271,17 @@ fun AlbumScreen(
 
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    @Composable
+    fun rememberAuthImageLoader(context: Context): ImageLoader {
+        return remember {
+            ImageLoader.Builder(context)
+                .okHttpClient {
+                    OkHttpProvider.create(context)
+                }
+                .build()
         }
     }
 
@@ -361,30 +380,24 @@ fun AlbumScreen(
         }
     }
 
-
-    LaunchedEffect(gridState) {
-        snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
-            .collect { (firstIndex, offset) ->
-                val itemHeightPx = 200f // 每个 Grid item 高度
-
-                // totalScroll = 实际滚动 + Spacer 高度（只加一次）+ 状态栏高度
-                val totalScroll = firstIndex * itemHeightPx + offset + spacerHeightPx
-
-                maskVisible.value = ((totalScroll - maskTriggerPx) / maskHeightPx).coerceIn(0f, 1f)
-
-                topBarColor.value = if (totalScroll > thresholdPx) Color.White else Color.Black
+    fun sendTextToGenerate(text: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                RetrofitClient.getApi().generateImage(
+                    type = "生图",
+                    imageUrl = "",
+                    thumbnailUrl = "",
+                    args = mapOf("text" to text)
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-    }
-
-    LaunchedEffect(maskVisible.value) {
-        val insetsController = WindowCompat.getInsetsController(window, view)
-        // 当 maskVisible 超过一定阈值时切换为浅色图标
-        if (maskVisible.value >= 0.8f) {
-            insetsController.isAppearanceLightStatusBars = false // 白色图标
-        } else {
-            insetsController.isAppearanceLightStatusBars = true  // 黑色图标
         }
     }
+
+    var useDarkTopBar by remember { mutableStateOf(false) }
+    val topBarColor = if (useDarkTopBar) Color.White else Color.Black
+
 
     LaunchedEffect(Unit) {
         refreshFolder()
@@ -436,7 +449,7 @@ fun AlbumScreen(
                 previewImagePath = null
             }
 
-            currentTab != "最新" && currentPath != "素材" && currentPath != "动图" && currentPath != "修图" && folderContent?.parent != null -> {
+            currentTab != "最新" && currentPath != "素材" && currentPath != "动图" && currentPath != "修图" && currentPath != "生图" && folderContent?.parent != null -> {
                 // 非最新Tab，且有父目录时返回上一级
                 rememberDirectory(currentPath, folderContent!!.parent.path)
                 currentPath = folderContent!!.parent.path
@@ -473,7 +486,7 @@ fun AlbumScreen(
                     title = {
                         Text(
                             text = displayPath,
-                            color = topBarColor.value,
+                            color = topBarColor,
                             fontSize = fontSize,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -502,7 +515,7 @@ fun AlbumScreen(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "全选",
-                                        tint = topBarColor.value
+                                        tint = topBarColor
                                     )
                                 }
                             } else {
@@ -512,7 +525,7 @@ fun AlbumScreen(
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "新增",
-                                        tint = topBarColor.value
+                                        tint = topBarColor
                                     )
                                 }
                             }
@@ -526,7 +539,7 @@ fun AlbumScreen(
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = "更多",
-                                    tint = topBarColor.value
+                                    tint = topBarColor
                                 )
                             }
                             DropdownMenu(
@@ -556,28 +569,43 @@ fun AlbumScreen(
                                     }
                                 )
 
+//                                DropdownMenuItem(
+//                                    text = { Text("地址设置") },
+//                                    onClick = {
+//                                        expanded = false
+//                                        navController.navigate("address_settings")
+//                                        currentPath = "素材"
+//                                    }
+//                                )
+//
+//                                DropdownMenuItem(
+//                                    text = { Text("功能设置") },
+//                                    onClick = {
+//                                        expanded = false
+//                                        navController.navigate("function_settings")
+//                                    }
+//                                )
+//
+//                                DropdownMenuItem(
+//                                    text = { Text("提示词") },
+//                                    onClick = {
+//                                        expanded = false
+//                                        navController.navigate("prompt_list")
+//                                    }
+//                                )
+//
+//                                DropdownMenuItem(
+//                                    text = { Text("帮助") },
+//                                    onClick = {
+//                                        expanded = false
+//                                        navController.navigate("help")
+//                                    }
+//                                )
                                 DropdownMenuItem(
-                                    text = { Text("地址设置") },
+                                    text = { Text("设置") },
                                     onClick = {
                                         expanded = false
-                                        navController.navigate("address_settings")
-                                        currentPath = "素材"
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("功能设置") },
-                                    onClick = {
-                                        expanded = false
-                                        navController.navigate("function_settings")
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("帮助") },
-                                    onClick = {
-                                        expanded = false
-                                        navController.navigate("help")
+                                        navController.navigate("settings")
                                     }
                                 )
                             }
@@ -585,7 +613,7 @@ fun AlbumScreen(
                         }
                     },
                     colors = topAppBarColors(
-                        containerColor = Color.Transparent,   // 背景透明
+                        containerColor = Color.White,   // 背景透明
                         titleContentColor = Color.White,      // 标题白色
                         actionIconContentColor = Color.White  // 图标白色
                     ),
@@ -601,50 +629,87 @@ fun AlbumScreen(
                 )
             }
         },
+        floatingActionButton = {
+            if (currentTab == "生图") {
+                FloatingActionButton(
+                    onClick = {
+                        inputText = ""
+                        showTextInputDialog = true
+                    },
+                    containerColor = Color(0xFF2196F3), // 蓝色（Material Blue 500）
+                    contentColor = Color.White,
+                    modifier = Modifier.offset(y = (-96).dp),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "生图"
+                    )
+                }
+            }
+
+        }
     ) {
         val configuration = LocalConfiguration.current
         val density = LocalDensity.current
         val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-        val swipeThreshold = screenWidthPx / 4f
 
         Box (
-
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
-                .pointerInput(currentTab, multiSelectMode) {
-
-                    if (!multiSelectMode) { // 多选模式下不响应滑动
-                        detectHorizontalDragGestures { change, dragAmount ->
-                            val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
-                            if (dragAmount > 30 && currentIndex > 0) { // 向右
-                                val newTab = pathOptions[currentIndex - 1]
-                                currentTab = newTab.first
-                                rememberDirectory(
-                                    currentPath,
-                                    getSavedPath(newTab.first, newTab.second)
-                                )
-                                currentPath = getSavedPath(newTab.first, newTab.second)
-                                scope.launch {
-                                    refreshFolder()
-                                }
-                            } else if (dragAmount < -30 && currentIndex < pathOptions.size - 1) { // 向左
-                                val newTab = pathOptions[currentIndex + 1]
-                                currentTab = newTab.first
-                                rememberDirectory(
-                                    currentPath,
-                                    getSavedPath(newTab.first, newTab.second)
-                                )
-                                currentPath = getSavedPath(newTab.first, newTab.second)
-                                scope.launch {
-                                    refreshFolder()
-                                }
-                            }
-                        }
-                    }
-                }
+//                .pointerInput(currentTab, multiSelectMode) {
+//
+//                    if (!multiSelectMode) { // 多选模式下不响应滑动
+//                        detectHorizontalDragGestures { change, dragAmount ->
+//                            val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
+//                            scope.launch {
+//                                if (dragAmount > 30 && currentIndex > 0) { // 向右
+//                                    val newTab = pathOptions[currentIndex - 1]
+//
+//                                    // 1. 保存旧路径
+//                                    savePath(currentTab, currentPath)
+//
+//                                    // 2. 切 tab
+//                                    currentTab = newTab.first
+//
+//                                    // 3. 获取新路径
+//                                    var targetPath = getSavedPath(newTab.first, newTab.second)
+//                                    if (!targetPath.contains(newTab.second)){
+//                                        targetPath = newTab.second
+//                                    }
+//                                    // 4. 记忆目录
+//                                    rememberDirectory(currentPath, targetPath)
+//
+//                                    // 5. 修改 currentPath
+//                                    currentPath = targetPath
+//
+//                                    // 6. 刷新
+//                                    refreshFolder()
+//
+//                                } else if (dragAmount < -30 && currentIndex < pathOptions.size - 1) { // 向左
+//                                    val newTab = pathOptions[currentIndex + 1]
+//
+//                                    savePath(currentTab, currentPath)
+//                                    currentTab = newTab.first
+//
+//                                    var targetPath = getSavedPath(newTab.first, newTab.second)
+//                                    if (!targetPath.contains(newTab.second)){
+//                                        targetPath = newTab.second
+//                                    }
+//                                    rememberDirectory(currentPath, targetPath)
+//                                    currentPath = targetPath
+//
+//                                    refreshFolder()
+//                                }
+//                            }
+//
+//                        }
+//                    }
+//                }
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+
                 Box(modifier = Modifier.weight(1f)) {
                     // 图片/文件夹网格
                     folderContent?.let { content ->
@@ -690,37 +755,39 @@ fun AlbumScreen(
                             }
 
 
+                        val collator = Collator.getInstance(Locale.CHINA)
+
                         val sortedFolders = content.folders
                             .map { FileInfo(name = it.name, is_dir = true, path = it.path) }
-                            .sortedBy { it.name.lowercase() } // 按名称排序
+                            .sortedWith { a, b ->
+                                collator.compare(a.name, b.name)
+                            }
 
                         val allItems = sortedFolders + sortedFiles
                         val fileCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
 
                         if (readyToDisplay) {
-                            if (previewImagePath == null) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(maskHeight)
-                                        .background(
-                                            brush = Brush.verticalGradient(
-                                                colors = listOf(Color.Black, Color.Transparent)
-                                            ),
-                                            alpha = maskVisible.value * 0.8f // 最大 0.8
-                                        )
-                                        .align(Alignment.TopStart) // BoxScope 内
-                                        .zIndex(1f)
-                                )
-                            }
-
 
                             PullToRefreshBox(
                                 isRefreshing = isRefreshing,
                                 onRefresh = {
                                     scope.launch {
                                         isRefreshing = true
+
+                                        val startTime = System.currentTimeMillis()
+
+                                        // 执行实际刷新逻辑
+                                        rememberDirectory(currentPath, currentPath)
                                         refreshFolder()
+
+                                        // 计算已用时间
+                                        val elapsed = System.currentTimeMillis() - startTime
+                                        val minDuration = 1000L // 1.5 秒
+
+                                        if (elapsed < minDuration) {
+                                            delay(minDuration - elapsed) // 等待剩余时间
+                                        }
+
                                         isRefreshing = false
                                     }
                                 },
@@ -759,31 +826,28 @@ fun AlbumScreen(
                                                     .aspectRatio(1f)
                                                     .combinedClickable(
                                                         onClick = {
-                                                            if (multiSelectMode && !file.is_dir) {
-                                                                // 多选模式：点击切换选中状态
-                                                                val path =
-                                                                    file.file_url ?: file.path
-                                                                if (selectedImages.contains(path)) {
-                                                                    selectedImages.remove(path)
-                                                                } else {
-                                                                    selectedImages.add(path)
-                                                                }
+                                                            if (file.is_dir) {
+                                                                // 打开目录
+                                                                rememberDirectory(currentPath, file.path)
+                                                                currentPath = file.path
+                                                                scope.launch { refreshFolder() }
                                                             } else {
-                                                                // 普通模式
-                                                                if (file.is_dir) {
-                                                                    rememberDirectory(
-                                                                        currentPath,
-                                                                        file.path
-                                                                    )
-                                                                    currentPath = file.path
-                                                                    scope.launch {
-                                                                        refreshFolder()
-                                                                    }
-                                                                } else fullUrl?.let {
-                                                                    previewImagePath = it
+                                                                // 文件才使用 URL
+                                                                val url = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
+                                                                if (url == null) {
+                                                                    Toast.makeText(context, "文件未准备好，请稍候", Toast.LENGTH_SHORT).show()
+                                                                    return@combinedClickable
                                                                 }
 
-                                                                if (!file.is_dir) {
+                                                                if (multiSelectMode) {
+                                                                    val path = file.file_url ?: file.path
+                                                                    if (selectedImages.contains(path)) {
+                                                                        selectedImages.remove(path)
+                                                                    } else {
+                                                                        selectedImages.add(path)
+                                                                    }
+                                                                } else {
+                                                                    previewImagePath = url
                                                                     selectedFileForMenu = file
                                                                 }
                                                             }
@@ -791,12 +855,8 @@ fun AlbumScreen(
                                                         onLongClick = {
                                                             if (!file.is_dir) {
                                                                 multiSelectMode = true
-                                                                selectedImages.add(
-                                                                    file.file_url ?: file.path
-                                                                )
-                                                                selectedImagesPath.add(
-                                                                    file.path
-                                                                )
+                                                                selectedImages.add(file.file_url ?: file.path)
+                                                                selectedImagesPath.add(file.path)
                                                             }
                                                         }
                                                     ),
@@ -841,6 +901,7 @@ fun AlbumScreen(
                                                 } else {
                                                     val isVideo =
                                                         file.file_url?.lowercase()?.endsWith(".mp4") == true
+//                                                    val imageLoader = rememberAuthImageLoader(context)
                                                     Box(modifier = Modifier.fillMaxSize()) {
                                                         AsyncImage(
                                                             model = ImageRequest.Builder(context)
@@ -853,6 +914,7 @@ fun AlbumScreen(
                                                                 .crossfade(true)
                                                                 .build(),
                                                             contentDescription = file.name,
+//                                                            imageLoader = imageLoader,
                                                             contentScale = ContentScale.Crop,
                                                             modifier = Modifier
                                                                 .fillMaxSize()
@@ -1082,7 +1144,7 @@ fun AlbumScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .background(Color(0xFFECECEC).copy(alpha = 0.9f))
+                        .background(Color.White)
                 ) {
 
                     Row(
@@ -1099,32 +1161,67 @@ fun AlbumScreen(
                                 verticalArrangement = Arrangement.Center,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .pointerInput(multiSelectMode, currentTab) {
-                                        if (!multiSelectMode) {
-                                            detectTapGestures(
-                                                onTap = {
-                                                    // 单击切换 Tab + 刷新
-                                                    savePath(currentTab, currentPath)
-                                                    currentTab = displayName
-                                                    rememberDirectory(
-                                                        currentPath,
-                                                        getSavedPath(displayName, defaultPath)
-                                                    )
-                                                    currentPath =
-                                                        getSavedPath(displayName, defaultPath)
-                                                    scope.launch {
-                                                        refreshFolder()
-                                                    }
-                                                },
-                                                onDoubleTap = {
-                                                    // 双击滚动到顶部
-                                                    scope.launch {
-                                                        gridState.animateScrollToItem(0)
-                                                    }
+                                    .clickable(
+                                        enabled = !multiSelectMode,
+                                        onClick = {
+                                            scope.launch {
+//                                                savePath(currentTab, currentPath)
+//                                                currentTab = displayName
+//                                                currentPath = getSavedPath(displayName, defaultPath)
+//                                                refreshFolder()
+
+                                                // 1. 保存旧路径
+                                                savePath(currentTab, currentPath)
+
+                                                // 2. 切 tab
+                                                currentTab = displayName
+
+                                                // 3. 获取新路径
+                                                var targetPath = getSavedPath(displayName, defaultPath)
+                                                if (!targetPath.contains(defaultPath)){
+                                                    targetPath = defaultPath
                                                 }
-                                            )
+                                                // 4. 记忆目录
+                                                rememberDirectory(currentPath, targetPath)
+
+                                                // 5. 修改 currentPath
+                                                currentPath = targetPath
+
+                                                // 6. 刷新
+                                                refreshFolder()
+                                            }
                                         }
-                                    }
+                                    )
+//                                    .pointerInput(multiSelectMode, currentTab) {
+//                                        if (!multiSelectMode) {
+//                                            detectTapGestures(
+//                                                onTap = {
+//                                                    scope.launch {
+//                                                        // 1. 保存当前路径
+//                                                        savePath(currentTab, currentPath)
+//
+//                                                        // 2. 切 tab
+//                                                        currentTab = displayName
+//
+//                                                        // 3. 获取 tab 对应路径（保证顺序）
+//                                                        val path = getSavedPath(displayName, defaultPath)
+//
+//                                                        // 4. 更新 currentPath
+//                                                        currentPath = path
+//
+//                                                        // 5. 刷新
+//                                                        refreshFolder()
+//                                                    }
+//                                                },
+//                                                onDoubleTap = {
+//                                                    // 双击滚动到顶部
+//                                                    scope.launch {
+//                                                        gridState.animateScrollToItem(0)
+//                                                    }
+//                                                }
+//                                            )
+//                                        }
+//                                    }
                                     .fillMaxSize()
                             ) {
                                 Text(
@@ -1144,6 +1241,69 @@ fun AlbumScreen(
                                 )
                             }
 
+                        }
+                    }
+                }
+            }
+
+            if (showTextInputDialog) {
+                Dialog(onDismissRequest = { showTextInputDialog = false }) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .widthIn(min = 280.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+
+                            Text(
+                                text = "生图",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            OutlinedTextField(
+                                value = inputText,
+                                onValueChange = { inputText = it },
+                                placeholder = { Text("请输入描述文本…") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 5,
+                                maxLines = 7
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+
+                                TextButton(
+                                    onClick = {
+                                        showTextInputDialog = false
+                                    }
+                                ) {
+                                    Text("取消")
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Button(
+                                    enabled = inputText.isNotBlank(),
+                                    onClick = {
+                                        showTextInputDialog = false
+                                        sendTextToGenerate(inputText)
+                                    },
+                                    contentPadding = PaddingValues(
+                                        horizontal = 16.dp,
+                                        vertical = 6.dp
+                                    )
+                                ) {
+                                    Text("发送")
+                                }
+
+                            }
                         }
                     }
                 }
@@ -1377,7 +1537,7 @@ fun AlbumScreen(
                     .padding(bottom = 72.dp)
                     .fillMaxWidth(0.8f)
                     .clip(RoundedCornerShape(16.dp)),
-                color = Color(0xFFECECEC).copy(alpha = 0.9f),
+                color = Color.White,
                 shadowElevation = 32.dp,     // 提升阴影
                 tonalElevation = 8.dp       // 细腻分层
             ) {
@@ -1788,12 +1948,29 @@ fun GridWithVerticalScrollHandleOverlay(
     allItems: List<FileInfo>,
     columns: Int = 3,
     gridState: LazyGridState,
-    handleHeight: Dp = 40.dp,       // 滑块高度
-    handleWidth: Dp = 28.dp,        // 滑块宽度
-    trackPaddingTop: Dp = 120.dp,    // 轨道顶部 padding
+    handleHeight: Dp = 40.dp, // 滑块高度
+    handleWidth: Dp = 28.dp, // 滑块宽度
+    trackPaddingTop: Dp = 120.dp, // 轨道顶部 padding
     trackPaddingBottom: Dp = 96.dp, // 轨道底部 padding
     content: @Composable (LazyGridState) -> Unit
 ) {
+
+    // ⭐⭐⭐ 新增：无内容提示（不会 return，不影响滑块布局）
+    if (allItems.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "无文件夹或媒体文件",
+                color = Color.Gray,
+                fontSize = 16.sp
+            )
+        }
+        return
+    }
+
     val scope = rememberCoroutineScope()
     var handleOffset by remember { mutableStateOf(0f) }
     var trackHeightPx by remember { mutableStateOf(0f) }
@@ -1809,111 +1986,125 @@ fun GridWithVerticalScrollHandleOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .onGloballyPositioned { coords -> gridWidthPx = coords.size.width.toFloat() }
-        ) {
-            if (allItems.isEmpty()) {
-                // 空数据占位
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 200.dp, bottom = 80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "无文件夹或媒体文件",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center
-                    )
+                .onGloballyPositioned { coords ->
+                    gridWidthPx = coords.size.width.toFloat()
                 }
-            } else {
-                content(gridState) // 渲染原来的 LazyVerticalGrid
-            }
+        ) {
+            content(gridState)
         }
 
         // ------------------ 滑块轨道 ------------------
-        if (allItems.isNotEmpty()) { // 只有有数据才显示滑块
-            Box(
-                modifier = Modifier
-                    .width(handleWidth)
-                    .fillMaxHeight()
-                    .align(Alignment.CenterEnd)
-                    .onGloballyPositioned { coords -> trackHeightPx = coords.size.height.toFloat() - paddingTopPx - paddingBottomPx }
-            ) {
-                if (showHandle) {
-                    val dragState = rememberDraggableState { delta ->
-                        isDragging = true
-                        handleOffset = (handleOffset + delta)
-                            .coerceIn(0f, (trackHeightPx - handleHeightPx).coerceAtLeast(0f))
+        Box(
+            modifier = Modifier
+                .width(handleWidth)
+                .fillMaxHeight()
+                .align(Alignment.CenterEnd)
+                .onGloballyPositioned { coords ->
+                    trackHeightPx =
+                        coords.size.height.toFloat() - paddingTopPx - paddingBottomPx
+                }
+        ) {
+            if (showHandle) {
 
-                        val rowHeightPx = gridWidthPx / columns
-                        val totalRows = ceil(allItems.size / columns.toFloat())
-                        val totalHeightPx = totalRows * rowHeightPx
+                val dragState = rememberDraggableState { delta ->
+                    isDragging = true
 
-                        val scrollY = (handleOffset / (trackHeightPx - handleHeightPx)) * (totalHeightPx - trackHeightPx)
-                        val targetRowF = scrollY / rowHeightPx
-                        val targetRow = targetRowF.toInt().coerceIn(0, totalRows.toInt() - 1)
-                        val rowOffset = ((targetRowF - targetRow) * rowHeightPx).toInt()
-                        val targetIndex = targetRow * columns
+                    handleOffset = (handleOffset + delta)
+                        .coerceIn(0f, (trackHeightPx - handleHeightPx).coerceAtLeast(0f))
 
-                        scope.launch { gridState.scrollToItem(targetIndex, rowOffset) }
-                    }
+                    val rowHeightPx = gridWidthPx / columns
+                    val totalRows = ceil(allItems.size / columns.toFloat())
+                    val totalHeightPx = totalRows * rowHeightPx
 
-                    Box(
-                        modifier = Modifier
-                            .offset { IntOffset(0, (handleOffset + paddingTopPx).roundToInt()) }
-                            .width(handleWidth)
-                            .height(handleHeight)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp),
-                                clip = false
-                            )
-                            .background(
-                                color = Color.White,
-                                shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
-                            )
-                            .draggable(
-                                orientation = Orientation.Vertical,
-                                state = dragState,
-                                onDragStopped = { isDragging = false }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.sort),
-                            contentDescription = "滑块",
-                            modifier = Modifier.size(16.dp)
-                        )
+                    val scrollY =
+                        (handleOffset / (trackHeightPx - handleHeightPx)) * (totalHeightPx - trackHeightPx)
+
+                    val targetRowF = scrollY / rowHeightPx
+                    val targetRow = targetRowF.toInt()
+                        .coerceIn(0, totalRows.toInt() - 1)
+
+                    val rowOffset = ((targetRowF - targetRow) * rowHeightPx).toInt()
+                    val targetIndex = targetRow * columns
+
+                    scope.launch {
+                        gridState.scrollToItem(targetIndex, rowOffset)
                     }
                 }
 
-                // ------------------ 同步 Grid 滚动 ------------------
-                LaunchedEffect(
-                    gridState.firstVisibleItemIndex,
-                    gridState.firstVisibleItemScrollOffset,
-                    gridWidthPx,
-                    trackHeightPx
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(0, (handleOffset + paddingTopPx).roundToInt())
+                        }
+                        .width(handleWidth)
+                        .height(handleHeight)
+                        .shadow(
+                            elevation = 8.dp,
+                            shape = RoundedCornerShape(
+                                topStart = 8.dp,
+                                bottomStart = 8.dp
+                            ),
+                            clip = false
+                        )
+                        .background(
+                            color = Color.White,
+                            shape = RoundedCornerShape(
+                                topStart = 8.dp,
+                                bottomStart = 8.dp
+                            )
+                        )
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = dragState,
+                            onDragStopped = {
+                                isDragging = false
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
-                    if (gridWidthPx > 0f && trackHeightPx > 0f) {
-                        val rowHeightPx = gridWidthPx / columns
-                        val totalRows = ceil(allItems.size / columns.toFloat())
-                        val totalHeightPx = totalRows * rowHeightPx
-                        showHandle = totalHeightPx > 3 * trackHeightPx
-                        if (showHandle && !isDragging) {
+                    Image(
+                        painter = painterResource(id = R.drawable.sort),
+                        contentDescription = "滑块",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // ------------------ 同步 Grid 滚动 ------------------
+            LaunchedEffect(
+                gridState.firstVisibleItemIndex,
+                gridState.firstVisibleItemScrollOffset,
+                gridWidthPx,
+                trackHeightPx
+            ) {
+                if (gridWidthPx > 0f && trackHeightPx > 0f) {
+
+                    val rowHeightPx = gridWidthPx / columns
+                    val totalRows = ceil(allItems.size / columns.toFloat())
+                    val totalHeightPx = totalRows * rowHeightPx
+
+                    // 内容不足3屏时隐藏滑块
+                    showHandle = totalHeightPx > 3 * trackHeightPx
+
+                    if (showHandle) {
+                        if (!isDragging) {
                             val scrollY =
                                 (gridState.firstVisibleItemIndex / columns) * rowHeightPx +
                                         gridState.firstVisibleItemScrollOffset.toFloat()
-                            handleOffset = (scrollY / (totalHeightPx - trackHeightPx)) * (trackHeightPx - handleHeightPx)
-                        } else {
-                            handleOffset = 0f
+
+                            handleOffset =
+                                (scrollY / (totalHeightPx - trackHeightPx)) *
+                                        (trackHeightPx - handleHeightPx)
                         }
+                    } else {
+                        handleOffset = 0f
                     }
                 }
             }
         }
     }
 }
+
 
 
 
@@ -1976,3 +2167,5 @@ fun ProgressDialog(
         }
     }
 }
+
+

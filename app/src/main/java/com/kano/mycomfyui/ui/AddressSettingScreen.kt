@@ -4,9 +4,13 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -14,8 +18,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -29,25 +36,81 @@ import org.json.JSONArray
 private const val PREFS_NAME = "app_settings"
 private const val KEY_ADDRESS_LIST = "address_list"
 private const val KEY_SELECTED_ADDRESS = "selected_address"
+private const val MAX_ADDRESS_COUNT = 3
+
+enum class Scheme {
+    HTTP, HTTPS
+}
+
+data class ServerAddress(
+    val address: String = "",   // host:port
+    val scheme: String = "http://",
+    val secret: String = ""
+) {
+    fun buildBaseUrl(): String? {
+        val raw = address.trim()
+        if (raw.isEmpty()) return null
+
+        val clean = raw
+            .removePrefix("http://")
+            .removePrefix("https://")
+
+        val parts = clean.split(":")
+
+        val host: String
+        val port: Int?
+
+        when (parts.size) {
+            1 -> {
+                // 没写端口
+                if (scheme == "http://") return null   // HTTP 必须写端口
+                host = parts[0]
+                port = null // HTTPS 默认 443
+            }
+            2 -> {
+                host = parts[0]
+                port = parts[1].toIntOrNull() ?: return null
+                if (port !in 1..65535) return null
+            }
+            else -> return null
+        }
+
+        return if (port != null) {
+            "$scheme$host:$port/"
+        } else {
+            "$scheme$host/"
+        }
+    }
+
+}
+
+
 
 // 保存地址列表（JSON 数组形式）
-fun saveAddressList(context: Context, list: List<String>) {
+fun saveAddressList(context: Context, list: List<ServerAddress>) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    val json = JSONArray(list).toString()
+    val json = Gson().toJson(list)
     prefs.edit().putString(KEY_ADDRESS_LIST, json).apply()
 }
 
+
 // 读取地址列表
-fun loadAddressList(context: Context): List<String> {
+fun loadAddressList(context: Context): List<ServerAddress> {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    val json = prefs.getString(KEY_ADDRESS_LIST, null) ?: return emptyList()
-    return try {
-        val arr = JSONArray(json)
-        List(arr.length()) { arr.getString(it) }
-    } catch (e: Exception) {
+    val json = prefs.getString(KEY_ADDRESS_LIST, null)
+
+    val list = if (json.isNullOrEmpty()) {
         emptyList()
+    } else {
+        runCatching {
+            Gson().fromJson(json, Array<ServerAddress>::class.java).toList()
+        }.getOrElse { emptyList() }
     }
+
+    return (list + List(MAX_ADDRESS_COUNT) { ServerAddress() })
+        .take(MAX_ADDRESS_COUNT)
 }
+
 
 // 保存当前选中地址
 fun saveAddress(context: Context, address: String?) {
@@ -61,6 +124,7 @@ fun getSavedAddress(context: Context): String? {
     return prefs.getString(KEY_SELECTED_ADDRESS, null)
 }
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddressSettingScreen() {
@@ -68,159 +132,166 @@ fun AddressSettingScreen() {
     val coroutineScope = rememberCoroutineScope()
 
     var addressList by remember { mutableStateOf(loadAddressList(context)) }
-    var selectedAddress by remember { mutableStateOf(getSavedAddress(context)) }
-
-    var showDialog by remember { mutableStateOf(false) }
-    var newAddress by remember { mutableStateOf(TextFieldValue("")) }
+    var selectedIndex by remember { mutableStateOf(
+        getSavedAddress(context)?.toIntOrNull()
+    ) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("地址设置", color = Color.Black) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
-                actions = {
-                    IconButton(onClick = { showDialog = true }) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "添加地址",
-                            tint = Color.Black
-                        )
-                    }
-                }
+                title = { Text("地址设置") },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
             )
-        },
-        containerColor = Color.White
+        }
     ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (addressList.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("暂无地址，请点击右上角 + 添加")
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(addressList) { index, address ->
-                        val isSelected = selectedAddress == address
+            addressList.forEachIndexed { index, item ->
+                AddressCard(
+                    index = index,
+                    data = item,
+                    selected = selectedIndex == index,
+                    onSelect = {
+                        val baseUrl = item.buildBaseUrl()
+                        if (baseUrl == null) {
+                            Toast
+                                .makeText(context, "地址或端口无效", Toast.LENGTH_SHORT)
+                                .show()
+                            return@AddressCard
+                        }
 
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    selectedAddress = address
-                                    coroutineScope.launch { saveAddress(context, selectedAddress) }
-                                },
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected)
-                                    Color(0xFFE3F2FD)
-                                else
-                                    Color(0xFFF8F8F8)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = { isChecked ->
-                                        Toast.makeText(context, "请重新启动App", Toast.LENGTH_SHORT).show()
-                                        if (isChecked) {
-                                            selectedAddress = address
+                        selectedIndex = index
+                        saveAddress(context, index.toString())
 
-                                            // 更新全局地址并重建 Retrofit
-                                            ServerConfig.baseUrl = selectedAddress ?: "http://192.168.1.1:8000/"
-                                            RetrofitClient.rebuildRetrofit()
+                        ServerConfig.baseUrl = baseUrl
+                        RetrofitClient.rebuildRetrofit()
 
-                                            // 保存到本地
-                                            coroutineScope.launch {
-                                                saveAddress(context, selectedAddress)
-                                            }
-                                        } else {
-                                            selectedAddress = null
-                                            coroutineScope.launch {
-                                                saveAddress(context, null)
-                                            }
-                                        }
-                                    }
-                                )
-
-                                Text(
-                                    text = address,
-                                    color = Color.Black,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                TextButton(onClick = {
-                                    val updated = addressList.toMutableList().apply { removeAt(index) }
-                                    addressList = updated
-                                    coroutineScope.launch { saveAddressList(context, updated) }
-                                    if (selectedAddress == address) {
-                                        selectedAddress = null
-                                        coroutineScope.launch { saveAddress(context, null) }
-                                    }
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "删除",
-                                        tint = Color.Red,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
+                        Toast
+                            .makeText(context, "已切换地址，请重启 App", Toast.LENGTH_SHORT)
+                            .show()
+                    }
+                    ,
+                    onChange = { updated ->
+                        addressList = addressList.toMutableList().apply {
+                            set(index, updated)
+                        }
+                        coroutineScope.launch {
+                            saveAddressList(context, addressList)
                         }
                     }
-                }
+                )
             }
         }
     }
+}
 
-    // 🔹 添加地址的对话框
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text("新增访问地址") },
-            text = {
-                OutlinedTextField(
-                    value = newAddress,
-                    onValueChange = { newAddress = it },
-                    label = { Text("请输入完整地址") },
-                    modifier = Modifier.fillMaxWidth()
+@Composable
+fun AddressCard(
+    index: Int,
+    data: ServerAddress,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onChange: (ServerAddress) -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected)
+                Color(0xFFE3F2FD)
+            else
+                Color(0xFFF8F8F8)
+        ),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+
+                // ===== 地址是否启用 =====
+                Switch(
+                    checked = selected,
+                    onCheckedChange = { if (it) onSelect() },
+                    modifier = Modifier.scale(0.8f)
                 )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val trimmed = newAddress.text.trim()
-                    if (trimmed.isNotEmpty() && trimmed !in addressList) {
-                        addressList = addressList + trimmed
-                        coroutineScope.launch { saveAddressList(context, addressList) }
-                        newAddress = TextFieldValue("")
-                    }
-                    showDialog = false
-                }) {
-                    Text("保存")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDialog = false }) {
-                    Text("取消")
-                }
+
+                Text(
+                    text = "地址 ${index + 1}",
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+
             }
-        )
+
+
+            Spacer(Modifier.height(6.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                TextField(
+                    value = data.scheme,
+                    onValueChange = { onChange(data.copy(scheme = it)) },
+                    singleLine = true,
+                    modifier = Modifier.width(85.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                        unfocusedIndicatorColor = Color.Gray,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
+                )
+
+                TextField(
+                    value = data.address,
+                    onValueChange = { onChange(data.copy(address = it)) },
+                    placeholder  = { Text("地址", fontSize = 14.sp) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                        unfocusedIndicatorColor = Color.Gray,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
+                )
+
+            }
+
+            TextField(
+                value = data.secret,
+                onValueChange = { onChange(data.copy(secret = it)) },
+                placeholder  = { Text("密钥", fontSize = 14.sp) },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                colors = TextFieldDefaults.colors(
+                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                    unfocusedIndicatorColor = Color.Gray,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent
+                )
+            )
+
+
+        }
     }
 }
+
+
 

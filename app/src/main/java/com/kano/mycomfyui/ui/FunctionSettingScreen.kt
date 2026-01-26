@@ -23,6 +23,7 @@ fun FunctionSettingScreen() {
     // 读取 SharedPreferences
     var videoGenEnabled by remember { mutableStateOf(loadVideoGenEnabled(context)) }
     var maskClothesEnabled by remember { mutableStateOf(loadMaskClothesEnabled(context)) }
+    var text2ImgEnabled by remember { mutableStateOf(loadText2ImgEnabled(context)) }
 
     Scaffold(
         topBar = {
@@ -61,6 +62,16 @@ fun FunctionSettingScreen() {
                 onCheckedChange = {
                     maskClothesEnabled = it
                     saveMaskClothesEnabled(context, it)
+                }
+            )
+
+            SettingSwitchCard(
+                title = "文生图功能",
+                checked = text2ImgEnabled,
+                description = "开启后在相册主界面开启文生图功能，此功能要求服务器开放文生图权限",
+                onCheckedChange = {
+                    text2ImgEnabled = it
+                    saveText2ImgEnabled(context, it)
                 }
             )
         }

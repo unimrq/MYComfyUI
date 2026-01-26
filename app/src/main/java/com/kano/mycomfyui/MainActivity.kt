@@ -3,6 +3,7 @@ package com.kano.mycomfyui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -56,16 +57,23 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import com.kano.mycomfyui.ui.AlbumScreen
 import com.kano.mycomfyui.ui.AddressSettingScreen
 import com.kano.mycomfyui.ui.FunctionSettingScreen
 import com.kano.mycomfyui.ui.HelpScreen
+import com.kano.mycomfyui.ui.PromptAddScreen
+import com.kano.mycomfyui.ui.PromptEditScreen
+import com.kano.mycomfyui.ui.PromptListScreen
+import com.kano.mycomfyui.ui.SettingsScreen
 import com.kano.mycomfyui.ui.TaskScreen
+import com.kano.mycomfyui.ui.loadAddressList
 import com.kano.mycomfyui.ui.theme.MYComfyUITheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -83,8 +91,28 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val prefs = getSharedPreferences("app_settings", Context.MODE_PRIVATE)
-        val savedAddress = prefs.getString("selected_address", null)
-        ServerConfig.baseUrl = savedAddress ?: "http://192.168.1.1:8000"
+        val index = prefs.getString("selected_address", null)?.toIntOrNull()
+
+
+        if (index != null) {
+            val list = loadAddressList(this)
+            val address = list.getOrNull(index)
+            val baseUrl = address?.buildBaseUrl()
+            val secret = address?.secret.toString().trim()
+
+            if (baseUrl != null) {
+                ServerConfig.baseUrl = baseUrl
+                ServerConfig.secret = secret
+                RetrofitClient.rebuildRetrofit()
+            } else {
+                ServerConfig.baseUrl = "http://192.168.1.1:8000/"
+            }
+        } else {
+            ServerConfig.baseUrl = "http://192.168.1.1:8000/"
+        }
+
+//        Log.d("Addr", ServerConfig.baseUrl)
+//        Log.d("Addr", ServerConfig.secret)
 
         RetrofitClient.rebuildRetrofit()
 
@@ -133,10 +161,10 @@ class MainActivity : ComponentActivity() {
                         startDestination = "album",
                         modifier = Modifier.background(Color.White)
                     ) {
+                        paddingValues
                         composable("album") {
                             if (isUnlockedTemporary) {
                                 AlbumScreen(
-                                    paddingValues = paddingValues,
                                     onExitApp = { handleExitApp(scope) },
                                     navController = navController,
                                     onLockClick = {
@@ -212,6 +240,34 @@ class MainActivity : ComponentActivity() {
                         composable("help") {
                             HelpScreen()
                         }
+
+                        composable("prompt_list") {
+                            PromptListScreen(navController)
+                        }
+
+                        composable("settings") {
+                            SettingsScreen(navController)
+                        }
+
+                        composable(
+                            route = "prompt_edit/{title}",
+                            arguments = listOf(
+                                navArgument("title") { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val title = backStackEntry.arguments?.getString("title") ?: ""
+                            PromptEditScreen(
+                                navController = navController,
+                                originalTitle = title
+                            )
+                        }
+
+                        composable("prompt_add") {
+                            PromptAddScreen(
+                                navController = navController,
+                            )
+                        }
+
                     }
                 }
             }
