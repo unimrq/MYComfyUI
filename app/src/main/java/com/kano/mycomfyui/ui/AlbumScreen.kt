@@ -7,7 +7,6 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,7 +18,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -97,7 +95,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -120,7 +117,6 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import coil.size.Size
 import com.google.gson.Gson
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
@@ -207,6 +203,9 @@ fun AlbumScreen(
     var inputText by remember { mutableStateOf("") }
     var isImageListReady by remember { mutableStateOf(false) }
     var isTopBarVisible by remember { mutableStateOf(true) }
+
+    val visibleFileCoordsMap = remember { mutableStateOf(mutableMapOf<String, ImageBounds>()) }
+
 
     val pathOptions = if (text2imgEnabled) {
         listOf(
@@ -820,6 +819,36 @@ fun AlbumScreen(
                             ) {
                                 GridWithVerticalScrollHandleOverlay(allItems = allItems, columns = 3, handleHeight = 40.dp, gridState = gridState) {
 
+                                    val scope = rememberCoroutineScope()
+
+                                    // 根据滚动位置更新可见图片的位置信息
+                                    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.visibleItemsInfo) {
+                                        // 清理不在屏幕内的图片位置
+                                        visibleFileCoordsMap.value = visibleFileCoordsMap.value.filter { (key, _) ->
+                                            val visibleItems = gridState.layoutInfo.visibleItemsInfo
+                                            visibleItems.any { it.key == key }
+                                        }.toMutableMap()
+
+                                        // 获取当前可见区域内图片的位置信息
+                                        gridState.layoutInfo.visibleItemsInfo.forEach { item ->
+                                            val file = allItems[item.index]
+                                            val position = item.offset // 获取图片的位置
+
+                                            if (!visibleFileCoordsMap.value.containsKey(file.path)) {
+                                                visibleFileCoordsMap.value = visibleFileCoordsMap.value.toMutableMap().apply {
+                                                    put(file.path, ImageBounds(
+                                                        left = position.x.toFloat(),  // 确保使用 position.x 和 position.y
+                                                        top = item.offset.y.toFloat(), // 确保访问 item.offset.y
+                                                        width = item.size.width.toFloat(),  // item.size.width 是 Int 类型，转换为 Float
+                                                        height = item.size.height.toFloat()  // item.size.height 是 Int 类型，转换为 Float
+                                                    ))
+                                                }
+                                            }
+
+
+                                        }
+                                    }
+
                                     LazyVerticalGrid(
                                         state = gridState,
                                         columns = GridCells.Fixed(3),
@@ -924,17 +953,17 @@ fun AlbumScreen(
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxSize()
-//                                                            .onGloballyPositioned { coordinates ->
-//                                                                val pos = coordinates.positionInWindow()
-//                                                                val size = coordinates.size
-//
-//                                                                clickedThumbBounds = ImageBounds(
-//                                                                    left = pos.x,
-//                                                                    top = pos.y,
-//                                                                    width = size.width.toFloat(),
-//                                                                    height = size.height.toFloat()
-//                                                                )
-//                                                            }
+                                                            .onGloballyPositioned { coordinates ->
+                                                                val pos = coordinates.positionInWindow()
+                                                                val size = coordinates.size
+
+                                                                visibleFileCoordsMap.value[file.path] = ImageBounds(
+                                                                    left = pos.x,
+                                                                    top = pos.y,
+                                                                    width = size.width.toFloat(),
+                                                                    height = size.height.toFloat()
+                                                                )
+                                                            }
                                                     ) {
                                                         AsyncImage(
                                                             model = ImageRequest.Builder(context)
@@ -957,7 +986,7 @@ fun AlbumScreen(
 
                                                         val path = file.file_url ?: file.path
 
-                                                        if (selectedImages.contains(path)) {
+                                                        if (selectedImages.contains(path) && multiSelectMode) {
                                                             Box(
                                                                 modifier = Modifier
                                                                     .fillMaxSize()
@@ -1394,7 +1423,22 @@ fun AlbumScreen(
                         }
 
                     }
+                },
+                visibleFileCoordsMap = visibleFileCoordsMap,
+                // onScrollToPosition 用来滚动到目标图片
+                onScrollToPosition = { index ->
+                    scope.launch {
+                        // 获取当前屏幕可见区域的第一个和最后一个索引
+                        val firstVisibleIndex = gridState.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: 0
+                        val lastVisibleIndex = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+
+                        // 如果目标图片不在可见区域，才滚动到目标图片
+                        if (index !in firstVisibleIndex..lastVisibleIndex) {
+                            gridState.animateScrollToItem(index)  // 平滑滚动到目标图片
+                        }
+                    }
                 }
+
             )
 
         }

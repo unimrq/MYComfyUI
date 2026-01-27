@@ -4,25 +4,33 @@ import android.annotation.SuppressLint
 import androidx.annotation.OptIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -34,105 +42,24 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
+import androidx.compose.ui.zIndex
+import androidx.media3.common.util.Log
 import androidx.media3.common.util.UnstableApi
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.decode.ImageDecoderDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.kano.mycomfyui.MyApp
-import kotlin.math.abs
-import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import okhttp3.OkHttpClient
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.CacheDataSink
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import coil.size.Size
 import com.kano.mycomfyui.network.ServerConfig
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.zIndex
 import kotlin.math.pow
-
-@OptIn(UnstableApi::class)
-@SuppressLint("RememberReturnType")
-@Composable
-fun CachedVideoPlayer(
-    videoPath: String,
-    secretKey: String,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-
-
-    val exoPlayer = remember {
-        // 1️⃣ OkHttpClient 带 X-Secret Header
-        val okHttpClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val requestBuilder = chain.request().newBuilder()
-                // 仅网络 URL 才加 Header
-                if (videoPath.startsWith("http")) {
-                    requestBuilder.addHeader("X-Secret", secretKey)
-                }
-                chain.proceed(requestBuilder.build())
-            }
-            .build()
-
-        // 2️⃣ OkHttpDataSource.Factory
-        val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-
-        // 3️⃣ CacheDataSource.Factory
-        val cacheFactory = CacheDataSource.Factory()
-            .setCache(MyApp.simpleCache) // 你的缓存对象
-            .setUpstreamDataSourceFactory(okHttpDataSourceFactory)
-            .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(MyApp.simpleCache))
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-        // 4️⃣ 创建 ExoPlayer
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheFactory))
-            .build().apply {
-                setMediaItem(MediaItem.fromUri(videoPath))
-                repeatMode = ExoPlayer.REPEAT_MODE_ONE
-                prepare()
-                playWhenReady = true
-            }
-    }
-
-    // 自动释放
-    DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
-    }
-
-    // Compose UI
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-}
+import kotlin.math.roundToInt
 
 
 @OptIn(UnstableApi::class)
@@ -144,17 +71,20 @@ fun ImageDetailScreen(
     thumbPaths: MutableList<String>,
     initialIndex: Int = 0,
     onClose: () -> Unit,
-    onImageClick:() -> Unit,
+    onImageClick: () -> Unit,
     onGenerateClick: ((String) -> Unit)? = null,
     onSelectedFileChange: ((filePath: String) -> Unit)? = null,
+    visibleFileCoordsMap: MutableState<MutableMap<String, ImageBounds>>,
+    onScrollToPosition: (Int) -> Unit
+
 ) {
+    Log.d("ImageDetailScreen", "visibleFileCoordsMap: $visibleFileCoordsMap")
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     var isTopBarVisible by remember { mutableStateOf(true) }
-    var showControlBar by remember { mutableStateOf(true) }
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -174,18 +104,24 @@ fun ImageDetailScreen(
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var imageSize by remember { mutableStateOf(IntSize.Zero) }
+    var currentImageBounds by remember { mutableStateOf<ImageBounds?>(null) }
 
-//    val fullImageRect = remember(imageSize) {
-//        if (imageSize.width == 0 || imageSize.height == 0) {
-//            null
-//        } else {
-//            calculateFitRect(
-//                imageSize = imageSize,
-//                screenWidth = screenWidthPx,
-//                screenHeight = screenHeightPx
-//            )
-//        }
-//    }
+    val fullImageRect = remember(imageSize) {
+        if (imageSize.width == 0 || imageSize.height == 0) {
+            null
+        } else {
+            calculateFitRect(
+                imageSize = imageSize,
+                screenWidth = screenWidthPx,
+                screenHeight = screenHeightPx
+            )
+        }
+    }
+    val animOffsetX = remember { Animatable(0f) } // X 坐标动画
+    val animOffsetY = remember { Animatable(0f) } // Y 坐标动画
+    val animWidth = remember { Animatable(0f) } // 宽度动画
+    val animHeight = remember { Animatable(0f) } // 高度动画
+
 
     // 临时存储单指滑动的累计距离
     var dragAccumulation by remember { mutableStateOf(Offset.Zero) }
@@ -250,44 +186,35 @@ fun ImageDetailScreen(
             .zIndex(if(isTopBarVisible) 0f else 12f)
             .pointerInput(currentIndex) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
+                    // 计算新的缩放比例，限制在最小和最大比例之间
                     val newScale = (scale * zoom).coerceIn(minScale, maxScale)
 
-//                    Log.d("ges", isDismissTriggered.toString())
                     if (!isAnimateTriggered) {
-                        // ✅ 未达到关闭阈值
-//                        offset = (offset + centroid) - ((centroid) * (newScale / scale))
                         scale = newScale
 
+                        // 如果当前缩放比例大于 1，则进入放大状态，平移图片
                         if (scale > 1f) {
-                            // 放大状态 → 平移图片
-//                            val newOffset = offset + pan
-//                            val scaledWidth = imageSize.width * scale
-//                            val scaledHeight = imageSize.height * scale
-//                            val maxOffsetX = maxOf((scaledWidth - containerSize.width) / 2f, 0f)
-//                            val maxOffsetY = maxOf((scaledHeight - containerSize.height) / 2f, 0f)
-//                            offset = Offset(
-//                                newOffset.x.coerceIn(-maxOffsetX, maxOffsetX),
-//                                newOffset.y.coerceIn(-maxOffsetY, maxOffsetY)
-//                            )
                             offset += pan
                         } else if (zoom == 1f && scale == 1f) {
-
-                            // 原始比例下
+                            // 在原始比例下处理竖直拖动
                             if (pan.y > 0) {
-                                // 下拉
+                                // 下拉触发
                                 isDraggingDown = true
-                                if (dragYAddAble){
+                                if (dragYAddAble) {
                                     dragY += pan.y
                                 }
                                 offset += pan / newScale
+
+                                // 达到关闭阈值时触发关闭
                                 if (dragY > animateThreshold) {
                                     isAnimateTriggered = true
                                 }
                                 if (dragY > closeThreshold) {
                                     isCloseTriggered = true
                                 }
-                            } else if (pan.y < 0){
-                                if(isCloseTriggered){
+                            } else if (pan.y < 0) {
+                                // 上拉恢复默认位置或触发关闭动画
+                                if (isCloseTriggered) {
                                     isAnimateTriggered = false
                                     offset += pan / newScale
                                     dragYAddAble = false
@@ -301,37 +228,24 @@ fun ImageDetailScreen(
                                     }
                                 }
                             }
-//                            else if (!isDraggingDown) {
-//                                // 左右滑切图
-//                                dragAccumulation += pan
-//                                if (abs(dragAccumulation.x) > 120f) {
-//                                    if (dragAccumulation.x > 0 && currentIndex > 0) currentIndex--
-//                                    else if (dragAccumulation.x < 0 && currentIndex < imagePaths.lastIndex) currentIndex++
-//                                    dragAccumulation = Offset.Zero
-////                                    onSelectedFileChange?.invoke(imagePaths[currentIndex])
-//                                }
-//                            }
                         }
                     } else {
+                        // 如果动画触发，继续平移
                         offset += pan / newScale
-//                        dragY += pan.y
                     }
                 }
             }
             .pointerInput(Unit) {
-                // ✅ 双击放大/还原
+                // 双击放大/还原
                 detectTapGestures(
                     onTap = {
-//                        if(!isVideo){
-//                            onGenerateClick?.invoke(imagePaths[currentIndex])
-//                        }
-                        if(!isVideo){
-                            onImageClick()
-
+                        if (!isVideo) {
+                            onImageClick()  // 图像点击处理
                         }
-                        isTopBarVisible = !isTopBarVisible
+                        isTopBarVisible = !isTopBarVisible  // 显示/隐藏顶部工具栏
                     },
                     onDoubleTap = {
+                        // 双击放大或还原
                         if (scale > 1f) {
                             scale = 1f
                             offset = Offset.Zero
@@ -345,30 +259,50 @@ fun ImageDetailScreen(
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
+                        // 检测是否所有触摸事件已结束
                         if (event.changes.all { !it.pressed }) {
                             if (isCloseTriggered) {
-                                // 播放关闭动画
-//                                scope.launch {
-//                                    dismissProgress.snapTo(0f)
-//                                    dismissProgress.animateTo(
-//                                        targetValue = 1f,
-//                                        animationSpec = tween(300, easing = FastOutSlowInEasing)
-//                                    )
-//                                    onClose()
-//                                }
+                                // 播放关闭动画并触发关闭
                                 scope.launch {
                                     dismissProgress.animateTo(
                                         targetValue = 1f,
-                                        animationSpec = tween(
-                                            durationMillis = 120, // 时间适当拉长
-                                            easing = FastOutSlowInEasing
-                                        )
+                                        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing)
                                     )
-                                    onClose()
+                                    onClose()  // 关闭图像查看器
                                 }
-
+//                                scope.launch {
+//                                    // 飞向相册的平移和缩放动画
+//                                    animOffsetX.animateTo(
+//                                        targetValue = currentImageBounds?.left ?: 0f,
+//                                        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                                    )
+//                                    animOffsetY.animateTo(
+//                                        targetValue = currentImageBounds?.top ?: 0f,
+//                                        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                                    )
+//                                    animWidth.animateTo(
+//                                        targetValue = currentImageBounds?.width ?: 0f,
+//                                        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                                    )
+//                                    animHeight.animateTo(
+//                                        targetValue = currentImageBounds?.height ?: 0f,
+//                                        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                                    )
+//
+//                                    // 等待飞向相册的动画完成后，再进行关闭动画
+//                                    delay(500) // 等待飞向相册的动画完成
+//
+//                                    // 执行关闭透明度动画
+//                                    dismissProgress.animateTo(
+//                                        targetValue = 1f,
+//                                        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing)
+//                                    )
+//
+//                                    // 最后触发关闭
+//                                    onClose()  // 关闭图像查看器
+//                                }
                             } else {
-                                // 回弹
+                                // 回弹至原始位置
                                 if (scale == 1f) {
                                     dragY = 0f
                                     offset = Offset.Zero
@@ -380,6 +314,7 @@ fun ImageDetailScreen(
                     }
                 }
             }
+
 
 
     ) {
@@ -396,7 +331,7 @@ fun ImageDetailScreen(
 //                        with(LocalDensity.current) { rect.width.toDp() },
 //                        with(LocalDensity.current) { rect.height.toDp() }
 //                    )
-//                    .border(2.dp, Color.Red)
+//                    .border(5.dp, Color.Red)
 //            )
 //        }
 
@@ -439,10 +374,64 @@ fun ImageDetailScreen(
 
                 }
 
+
+
+                LaunchedEffect(currentIndex) {
+//                    delay(50)
+                    // 从可见区域的 map 中获取当前图片的位置
+                    val path = filePaths[currentIndex]
+                    currentImageBounds = visibleFileCoordsMap.value[path]
+//                    Log.d("ImageDetailScreen", "Current Path: $path")
+//                    Log.d("ImageDetailScreen", "Current Image Bounds: $currentImageBounds")
+                    // 如果目标图片不在当前可见区域，滚动到目标图片
+                    onScrollToPosition(currentIndex)
+                }
+
+//                LaunchedEffect(currentIndex) {
+//                    currentImageBounds?.let { bounds ->
+//                        // 从相册位置动画到大图位置
+//                        animOffsetX.animateTo(
+//                            targetValue = bounds.left,
+//                            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                        )
+//                        animOffsetY.animateTo(
+//                            targetValue = bounds.top,
+//                            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                        )
+//
+//                        // 从相册大小动画到大图大小
+//                        animWidth.animateTo(
+//                            targetValue = bounds.width,
+//                            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                        )
+//                        animHeight.animateTo(
+//                            targetValue = bounds.height,
+//                            animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing)
+//                        )
+//                    }
+//                }
+
+
+
+//                Box(
+//                    modifier = Modifier
+//                        .graphicsLayer(
+//                            scaleX = animWidth.value / 100f,  // 简单的 100f 宽度作为基准
+//                            scaleY = animHeight.value / 100f,  // 简单的 100f 高度作为基准
+//                            translationX = animOffsetX.value,
+//                            translationY = animOffsetY.value
+//                        )
+//                        .size(100.dp)  // 初始尺寸
+//                        .background(Color.Blue)
+//                )
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
+//                    Log.d("Debug", "animOffsetX: ${animOffsetX.value}, animOffsetY: ${animOffsetY.value}")
+//                    Log.d("Debug", "animWidth: ${animWidth.value}, animHeight: ${animHeight.value}")
+
                     val isGif = imagePath.lowercase().endsWith(".gif")
                     if (isGif){
                         ImageRequest.Builder(context)
@@ -454,6 +443,27 @@ fun ImageDetailScreen(
                             .build()
 
                     } else {
+//                        currentImageBounds?.let { bounds ->
+//                            Canvas(
+//                                modifier = Modifier.fillMaxSize()  // 设置透明度为0，完全透明
+//
+//                            ) {
+//                                drawRect(
+//                                    color = Color.Red.copy(alpha = 0.3f), // 红色矩形，透明度0.3
+//                                    topLeft = Offset(bounds.left, bounds.top),  // 矩形的左上角位置
+//                                    size = androidx.compose.ui.geometry.Size(bounds.width, bounds.height)   // 矩形的宽度和高度
+//                                )
+//                            }
+//                        }
+//                        currentImageBounds?.let {
+//                            Canvas(modifier = Modifier.fillMaxSize()) {
+//                                drawRect(
+//                                    color = Color.Red.copy(alpha = 0.3f),
+//                                    topLeft = Offset(animOffsetX.value, animOffsetY.value),
+//                                    size = androidx.compose.ui.geometry.Size(animWidth.value, animHeight.value)
+//                                )
+//                            }
+//                        }
                         SubcomposeAsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(imagePath)

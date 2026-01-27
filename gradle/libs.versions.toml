@@ -31,6 +31,7 @@ navigationComposeJvmstubs = "2.9.5"
 compose-material3-pullrefresh = "1.10.1" # ← 确保和 Compose 版本一致（比如 1.7.x）
 okhttp = "5.0.0-alpha.11"
 okhttpVersion = "4.11.0"
+remoteCreationCore = "1.0.0-alpha02"
 
 
 [libraries]
@@ -75,6 +76,7 @@ okhttp-v4110 = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttpVe
 retrofit = { module = "com.squareup.retrofit2:retrofit", version.ref = "converterGson" }
 exoplayer = { module = "com.google.android.exoplayer:exoplayer", version.ref = "exo" }
 androidx-navigation-compose-jvmstubs = { group = "androidx.navigation", name = "navigation-compose-jvmstubs", version.ref = "navigationComposeJvmstubs" }
+androidx-compose-remote-creation-core = { group = "androidx.compose.remote", name = "remote-creation-core", version.ref = "remoteCreationCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
