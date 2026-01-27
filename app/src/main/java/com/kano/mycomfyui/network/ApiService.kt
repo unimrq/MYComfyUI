@@ -56,6 +56,14 @@ interface ApiService {
     @GET("/api/tasks")
     suspend fun getTasks(): List<TaskInfo>
 
+    data class ClearTaskResponse(
+        val status: String,
+        val message: String
+    )
+
+    @GET("/api/tasks/clear")
+    suspend fun clearTasks(): ClearTaskResponse
+
     @POST("/api/tasks/{id}/restart")
     suspend fun restartTask(@Path("id") id: String): RestartResponse
 

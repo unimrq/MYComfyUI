@@ -55,14 +55,15 @@ fun EditImageSheet(
 
     var promptText by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    var showList by remember { mutableStateOf(true) }  // 控制列表显示
 
-    // ---- 从 API 加载词条 ----
+    // ---- 切换输入模式 ----
+    var isInputMode by remember { mutableStateOf(false) }
+
+    // ---- 标签列表 ----
     var items by remember { mutableStateOf<List<PromptItem>>(emptyList()) }
     val loadItems: suspend () -> Unit = {
         try {
-            items = RetrofitClient.getApi().getPromptList() // 返回 PromptItem(title, text)
+            items = RetrofitClient.getApi().getPromptList()
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(context, "加载词条失败", Toast.LENGTH_SHORT).show()
@@ -73,7 +74,6 @@ fun EditImageSheet(
         mutableStateOf<Set<PromptItem>>(emptySet())
     }
 
-
     LaunchedEffect(Unit) {
         loadItems()
     }
@@ -81,76 +81,96 @@ fun EditImageSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(12.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp) // 去掉 top padding
     ) {
-        // 内容输入框
-        OutlinedTextField(
-            value = promptText,
-            onValueChange = { promptText = it },
-            label = { Text("请输入提示词") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(120.dp)
-                .focusRequester(focusRequester)
-                .onFocusChanged { focusState: FocusState ->
-                    showList = !focusState.isFocused
-                },
-            maxLines = 5,
-            singleLine = false
-        )
 
+        // ---- 顶部按钮 ----
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
+                .fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            TextButton(
-                onClick = { showList = !showList }
-            ) {
-                Text(if (showList) "收起" else "展开", color = Color(0xFF3965B0))
+            TextButton(onClick = { isInputMode = !isInputMode }) {
+                Text("切换", color = Color(0xFF3965B0))
             }
 
-            // 发送逻辑保持不变
             TextButton(
                 onClick = {
-                    if (selectedItems.isEmpty()) {
-                        Toast.makeText(context, "请选择至少一个标签", Toast.LENGTH_SHORT).show()
-                        return@TextButton
-                    }
-
-                    scope.launch {
-                        selectedItems.forEach { prompt ->
+                    if (isInputMode) {
+                        if (promptText.isBlank()) {
+                            Toast.makeText(context, "请输入文字", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        // 发送输入框内容
+                        scope.launch {
                             imageUrls.forEachIndexed { index, url ->
                                 try {
                                     RetrofitClient.getApi().generateImage(
                                         type = "修图",
                                         imageUrl = url,
                                         thumbnailUrl = thumbnailUrls.getOrNull(index) ?: "",
-                                        args = mapOf("text" to (prompt.text ?: ""))
+                                        args = mapOf("text" to promptText)
                                     )
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     Toast.makeText(context, "网络错误", Toast.LENGTH_SHORT).show()
                                 }
                             }
+                            onDismiss()
                         }
-                        onDismiss()
+                        Toast.makeText(context, "已提交修图任务", Toast.LENGTH_SHORT).show()
+                    } else {
+                        if (selectedItems.isEmpty()) {
+                            Toast.makeText(context, "请选择至少一个标签", Toast.LENGTH_SHORT).show()
+                            return@TextButton
+                        }
+                        // 发送标签列表内容
+                        scope.launch {
+                            selectedItems.forEach { prompt ->
+                                imageUrls.forEachIndexed { index, url ->
+                                    try {
+                                        RetrofitClient.getApi().generateImage(
+                                            type = "修图",
+                                            imageUrl = url,
+                                            thumbnailUrl = thumbnailUrls.getOrNull(index) ?: "",
+                                            args = mapOf("text" to (prompt.text ?: ""))
+                                        )
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        Toast.makeText(context, "网络错误", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                            onDismiss()
+                        }
+                        Toast.makeText(
+                            context,
+                            "已提交 ${selectedItems.size} 个提示词的修图任务",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
-
-                    Toast.makeText(
-                        context,
-                        "已提交 ${selectedItems.size} 个提示词的修图任务",
-                        Toast.LENGTH_SHORT
-                    ).show()
                 }
             ) {
                 Text("发送", color = Color(0xFF3965B0))
             }
-
         }
 
-        if (showList) {
+        // ---- 内容部分 ----
+        if (isInputMode) {
+            // 输入框形式
+            OutlinedTextField(
+                value = promptText,
+                onValueChange = { promptText = it },
+                label = { Text("请输入提示词") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .focusRequester(focusRequester),
+                maxLines = 5,
+                singleLine = false
+            )
+        } else {
+            // 标签列表 FlowRow
             val displayItems = remember(items) {
                 items.filter { it.title.isNotBlank() }
             }
@@ -158,14 +178,14 @@ fun EditImageSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 240.dp)
+                    .heightIn(max = 412.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(
                         space = 6.dp,
-                        alignment = Alignment.CenterHorizontally // 👈 关键
+                        alignment = Alignment.CenterHorizontally
                     ),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -177,22 +197,16 @@ fun EditImageSheet(
                             selected = selected,
                             onClick = {
                                 selectedItems =
-                                    if (selected) {
-                                        selectedItems - item
-                                    } else {
-                                        selectedItems + item
-                                    }
+                                    if (selected) selectedItems - item else selectedItems + item
                             }
                         )
                     }
-
                 }
             }
         }
     }
-
-
 }
+
 
 @Composable
 fun TinyTag(
@@ -203,7 +217,7 @@ fun TinyTag(
     Text(
         text = text,
         fontSize = 12.sp,
-        color = if (selected) Color.White else Color.DarkGray,
+        color = if (selected) Color.White else Color.Black,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier

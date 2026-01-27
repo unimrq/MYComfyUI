@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,9 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import com.kano.mycomfyui.network.ApiService
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.isActive
@@ -125,7 +128,27 @@ fun TaskScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.White,
                     titleContentColor = Color.Black
-                )
+                ),
+                actions = {
+                    IconButton(onClick = {
+                        scope.launch {
+                            try {
+                                val api = RetrofitClient.getApi()
+                                val response = api.clearTasks()
+                                // 可以用 Toast 或 Log 输出
+                                println(response.message)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "清空任务",
+                            tint = Color.Black
+                        )
+                    }
+                }
             )
         }
     ) { padding ->

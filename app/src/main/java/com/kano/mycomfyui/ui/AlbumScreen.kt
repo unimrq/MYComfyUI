@@ -96,6 +96,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -109,6 +110,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
 import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -118,6 +120,7 @@ import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Size
 import com.google.gson.Gson
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
@@ -202,6 +205,8 @@ fun AlbumScreen(
     val text2imgEnabled = loadText2ImgEnabled(context)
     var showTextInputDialog by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
+    var isImageListReady by remember { mutableStateOf(false) }
+    var isTopBarVisible by remember { mutableStateOf(true) }
 
     val pathOptions = if (text2imgEnabled) {
         listOf(
@@ -465,11 +470,12 @@ fun AlbumScreen(
         }
     }
 
+
     Scaffold(
         modifier = Modifier.background(Color.White),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (previewImagePath == null){
+            if (true){
                 val displayPath = currentPath.split("/")
                     .takeLast(2)
                     .joinToString("·")
@@ -481,93 +487,96 @@ fun AlbumScreen(
                     displayPath.length <= 30 -> 16.sp
                     else -> 14.sp
                 }
-
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = displayPath,
-                            color = topBarColor,
-                            fontSize = fontSize,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    actions = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (multiSelectMode) {
-                                IconButton(onClick = {
-                                    if (selectedImages.size == folderContent?.files?.count { !it.is_dir }) {
-                                        // 如果已经全选，则清空
-                                        selectedImages.clear()
-                                    } else {
-                                        // 否则选中所有图片
-                                        selectedImages.clear()
-                                        selectedImages.addAll(
-                                            folderContent?.files
-                                                ?.filter { !it.is_dir }
-                                                ?.map { it.file_url ?: it.path }
-                                                ?: emptyList()
+                if (isTopBarVisible) {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = displayPath,
+                                color = topBarColor,
+                                fontSize = fontSize,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        actions = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (multiSelectMode) {
+                                    IconButton(onClick = {
+                                        if (selectedImages.size == folderContent?.files?.count { !it.is_dir }) {
+                                            // 如果已经全选，则清空
+                                            selectedImages.clear()
+                                        } else {
+                                            // 否则选中所有图片
+                                            selectedImages.clear()
+                                            selectedImages.addAll(
+                                                folderContent?.files
+                                                    ?.filter { !it.is_dir }
+                                                    ?.map { it.file_url ?: it.path }
+                                                    ?: emptyList()
+                                            )
+                                        }
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "全选",
+                                            tint = topBarColor
                                         )
                                     }
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "全选",
-                                        tint = topBarColor
-                                    )
-                                }
-                            } else {
-                                IconButton(onClick = {
-                                    showAddSheet = true
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = "新增",
-                                        tint = topBarColor
-                                    )
-                                }
-                            }
-
-
-                            var expanded by remember { mutableStateOf(false) }
-
-                            IconButton(onClick = {
-                                expanded = true
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "更多",
-                                    tint = topBarColor
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false },
-                                modifier = Modifier
-                                    .width(90.dp)
-                                    .background(Color.White),
-                            ) {
-
-                                DropdownMenuItem(
-                                    text = { Text("任务管理") },
-                                    onClick = {
-                                        expanded = false
-                                        navController.navigate("taskManage")
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = { Text("刷新页面") },
-                                    onClick = {
-                                        expanded = false
-                                        scope.launch {
-                                            RetrofitClient.getApi().refresh(currentPath)
-                                            refreshFolder()
+                                } else {
+                                    if (previewImagePath == null){
+                                        IconButton(onClick = {
+                                            showAddSheet = true
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Add,
+                                                contentDescription = "新增",
+                                                tint = topBarColor
+                                            )
                                         }
                                     }
-                                )
+
+                                }
+
+
+                                var expanded by remember { mutableStateOf(false) }
+
+                                IconButton(onClick = {
+                                    expanded = true
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "更多",
+                                        tint = topBarColor
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = expanded,
+                                    onDismissRequest = { expanded = false },
+                                    modifier = Modifier
+                                        .width(90.dp)
+                                        .background(Color.White),
+                                ) {
+
+                                    DropdownMenuItem(
+                                        text = { Text("任务管理") },
+                                        onClick = {
+                                            expanded = false
+                                            navController.navigate("taskManage")
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("刷新页面") },
+                                        onClick = {
+                                            expanded = false
+                                            scope.launch {
+                                                RetrofitClient.getApi().refresh(currentPath)
+                                                refreshFolder()
+                                            }
+                                        }
+                                    )
 
 //                                DropdownMenuItem(
 //                                    text = { Text("地址设置") },
@@ -601,32 +610,34 @@ fun AlbumScreen(
 //                                        navController.navigate("help")
 //                                    }
 //                                )
-                                DropdownMenuItem(
-                                    text = { Text("设置") },
-                                    onClick = {
-                                        expanded = false
-                                        navController.navigate("settings")
+                                    DropdownMenuItem(
+                                        text = { Text("设置") },
+                                        onClick = {
+                                            expanded = false
+                                            navController.navigate("settings")
+                                        }
+                                    )
+                                }
+
+                            }
+                        },
+                        colors = topAppBarColors(
+                            containerColor = Color.White,   // 背景透明
+                            titleContentColor = Color.White,      // 标题白色
+                            actionIconContentColor = Color.White  // 图标白色
+                        ),
+                        modifier = Modifier
+                            .shadow(0.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        onLockClick()
                                     }
                                 )
                             }
+                    )
+                }
 
-                        }
-                    },
-                    colors = topAppBarColors(
-                        containerColor = Color.White,   // 背景透明
-                        titleContentColor = Color.White,      // 标题白色
-                        actionIconContentColor = Color.White  // 图标白色
-                    ),
-                    modifier = Modifier
-                        .shadow(0.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    onLockClick()
-                                }
-                            )
-                        }
-                )
             }
         },
         floatingActionButton = {
@@ -650,9 +661,9 @@ fun AlbumScreen(
 
         }
     ) {
-        val configuration = LocalConfiguration.current
-        val density = LocalDensity.current
-        val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+//        val configuration = LocalConfiguration.current
+//        val density = LocalDensity.current
+//        val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
 
         Box (
             modifier = Modifier
@@ -708,6 +719,7 @@ fun AlbumScreen(
 //                    }
 //                }
         ) {
+
             Column(modifier = Modifier.fillMaxSize()) {
 
                 Box(modifier = Modifier.weight(1f)) {
@@ -765,6 +777,7 @@ fun AlbumScreen(
 
                         val allItems = sortedFolders + sortedFiles
                         val fileCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
+                        var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
 
                         if (readyToDisplay) {
 
@@ -782,7 +795,7 @@ fun AlbumScreen(
 
                                         // 计算已用时间
                                         val elapsed = System.currentTimeMillis() - startTime
-                                        val minDuration = 1000L // 1.5 秒
+                                        val minDuration = 250L // 1.5 秒
 
                                         if (elapsed < minDuration) {
                                             delay(minDuration - elapsed) // 等待剩余时间
@@ -817,7 +830,9 @@ fun AlbumScreen(
                                         horizontalArrangement = Arrangement.spacedBy(1.dp)
                                     ) {
                                         items(allItems, key = { it.path }) { file ->
-                                            val fullUrl = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
+//                                            val fullUrl = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
+
+
                                             Column(
                                                 modifier = Modifier
                                                     .onGloballyPositioned { coords ->
@@ -838,9 +853,9 @@ fun AlbumScreen(
                                                                     Toast.makeText(context, "文件未准备好，请稍候", Toast.LENGTH_SHORT).show()
                                                                     return@combinedClickable
                                                                 }
-
+                                                                val path = file.file_url ?: file.path
                                                                 if (multiSelectMode) {
-                                                                    val path = file.file_url ?: file.path
+
                                                                     if (selectedImages.contains(path)) {
                                                                         selectedImages.remove(path)
                                                                     } else {
@@ -849,7 +864,11 @@ fun AlbumScreen(
                                                                 } else {
                                                                     previewImagePath = url
                                                                     selectedFileForMenu = file
+//                                                                    multiSelectMode = true
+                                                                    selectedImages.add(path)
+
                                                                 }
+//                                                                Log.d("Bounds", clickedThumbBounds.toString())
                                                             }
                                                         },
                                                         onLongClick = {
@@ -902,7 +921,21 @@ fun AlbumScreen(
                                                     val isVideo =
                                                         file.file_url?.lowercase()?.endsWith(".mp4") == true
 //                                                    val imageLoader = rememberAuthImageLoader(context)
-                                                    Box(modifier = Modifier.fillMaxSize()) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+//                                                            .onGloballyPositioned { coordinates ->
+//                                                                val pos = coordinates.positionInWindow()
+//                                                                val size = coordinates.size
+//
+//                                                                clickedThumbBounds = ImageBounds(
+//                                                                    left = pos.x,
+//                                                                    top = pos.y,
+//                                                                    width = size.width.toFloat(),
+//                                                                    height = size.height.toFloat()
+//                                                                )
+//                                                            }
+                                                    ) {
                                                         AsyncImage(
                                                             model = ImageRequest.Builder(context)
                                                                 .data(file.thumbnail_url?.let { "${ServerConfig.baseUrl}$it" }
@@ -912,9 +945,9 @@ fun AlbumScreen(
                                                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                                                 .networkCachePolicy(CachePolicy.ENABLED)
                                                                 .crossfade(true)
+
                                                                 .build(),
                                                             contentDescription = file.name,
-//                                                            imageLoader = imageLoader,
                                                             contentScale = ContentScale.Crop,
                                                             modifier = Modifier
                                                                 .fillMaxSize()
@@ -1000,75 +1033,8 @@ fun AlbumScreen(
                             }
                         }
 
-                        // 删除确认对话框
-                        if (showDeleteDialog) {
-                            AlertDialog(
-                                onDismissRequest = {
-                                    showDeleteDialog = false
-                                },
-                                title = {
-                                    Text("确认删除")
-                                },
-                                text = {
-                                    Text("确定要删除选中的 ${selectedImages.size} 个文件吗？此操作不可恢复。")
-                                },
-                                confirmButton = {
-                                    TextButton(
-                                        onClick = {
-                                            showDeleteDialog = false
-                                            Toast.makeText(context, "正在删除...", Toast.LENGTH_SHORT).show()
-
-                                            val filesToDelete = selectedImages.mapNotNull { path ->
-                                                folderContent?.files?.find { it.file_url == path || it.path == path }
-                                            }
-
-                                            filesToDelete.forEach { file ->
-                                                val url = "${ServerConfig.baseUrl}${file.file_url ?: file.path}"
-                                                val index = imageList.indexOf(url)
-                                                if (index >= 0) {
-                                                    imageList.removeAt(index)
-                                                    thumbList.removeAt(index)
-                                                    fileList.removeAt(index)
-                                                }
-                                            }
-
-                                            scope.launch {
-                                                filesToDelete.map { file ->
-                                                    async {
-                                                        try {
-                                                            RetrofitClient.getApi().deleteFile(file.path)
-                                                        } catch (e: Exception) {
-                                                            e.printStackTrace()
-                                                        }
-                                                    }
-                                                }.awaitAll()
-                                                // 清理状态
-                                                selectedImages.clear()
-                                                multiSelectMode = false
-                                                Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
-                                                refreshFolder()
-                                            }
-                                        }
-                                    ) {
-                                        Text("删除", color = Color.Red)
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(
-                                        onClick = {
-                                            showDeleteDialog = false
-                                            multiSelectMode = false
-                                        }
-                                    ) {
-                                        Text("取消")
-                                    }
-                                }
-                            )
-                        }
-
                         // 预览大图使用同样的排序
                         if (previewImagePath != null) {
-                            var isImageListReady by remember { mutableStateOf(false) }
                             val filteredFiles = sortedFiles.filter {
                                 it.file_url?.matches(Regex(".*\\.(png|jpg|jpeg|gif|mp4|bmp)$", RegexOption.IGNORE_CASE)) == true
                             }
@@ -1090,55 +1056,119 @@ fun AlbumScreen(
                                 isImageListReady = true
                             }
 
-                            if (previewImagePath != null && isImageListReady && imageList.isNotEmpty()) {
-                                ImageDetailScreen(
-                                    imagePaths = imageList,
-                                    filePaths = fileList,
-                                    thumbPaths = thumbList,
-                                    initialIndex = currentImageIndex.value,
-                                    onClose = {
-                                        previewImagePath = null
-                                        isImageListReady = false
-                                    },
-                                    onGenerateClick = { selectedPath ->
-                                        val file = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == selectedPath }
-                                        if (file != null && !file.is_dir) {
-                                            if (!multiSelectMode) {
-                                                // 当前未多选，第一次点击，进入多选模式
-                                                selectedImages.clear()
-                                                selectedImages.add(file.file_url ?: file.path)
-                                                multiSelectMode = true
+                        }
+
+                        // 删除确认对话框
+                        if (showDeleteDialog) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    showDeleteDialog = false
+                                },
+                                title = {
+                                    Text("确认删除")
+                                },
+                                text = {
+                                    Text("确定要删除选中的 ${selectedImages.size} 个文件吗？此操作不可恢复。")
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            showDeleteDialog = false
+                                            Toast.makeText(context, "正在删除...", Toast.LENGTH_SHORT).show()
+                                            // 更新 currentIndex，防止越界
+                                            if (multiSelectMode){
+                                                val filesToDelete = selectedImages.mapNotNull { path ->
+                                                    folderContent?.files?.find { it.file_url == path || it.path == path }
+                                                }
+
+                                                filesToDelete.forEach { file ->
+                                                    val url = "${ServerConfig.baseUrl}${file.file_url ?: file.path}"
+                                                    val index = imageList.indexOf(url)
+                                                    if (index >= 0) {
+                                                        imageList.removeAt(index)
+                                                        thumbList.removeAt(index)
+                                                        fileList.removeAt(index)
+                                                    }
+                                                }
+
+
+                                                scope.launch {
+                                                    filesToDelete.map { file ->
+                                                        async {
+                                                            try {
+                                                                RetrofitClient.getApi().deleteFile(file.path)
+                                                            } catch (e: Exception) {
+                                                                e.printStackTrace()
+                                                            }
+                                                        }
+                                                    }.awaitAll()
+                                                    // 清理状态
+                                                    selectedImages.clear()
+                                                    multiSelectMode = false
+                                                    Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
+                                                    refreshFolder()
+                                                }
                                             } else {
-                                                // 当前已经多选，第二次点击，退出多选模式
-                                                selectedImages.clear()
-                                                multiSelectMode = false
+                                                if (selectedImages.isNotEmpty()) {
+                                                    val currentPath = selectedImages.first()
+                                                    val fileToDelete = folderContent?.files?.find { it.file_url == currentPath || it.path == currentPath }
+
+                                                    fileToDelete?.let { file ->
+                                                        val url = "${ServerConfig.baseUrl}${file.file_url ?: file.path}"
+                                                        val index = imageList.indexOf(url)
+                                                        if (index >= 0) {
+                                                            imageList.removeAt(index)
+                                                            thumbList.removeAt(index)
+                                                            fileList.removeAt(index)
+
+                                                            scope.launch {
+                                                                try {
+                                                                    RetrofitClient.getApi().deleteFile(file.path)
+                                                                } catch (e: Exception) {
+                                                                    e.printStackTrace()
+                                                                }
+
+                                                                // 删除完当前照片后更新 selectedImages
+                                                                selectedImages.clear()
+
+                                                                val nextIndex = index.coerceAtMost(imageList.lastIndex)
+                                                                if (nextIndex in imageList.indices) {
+                                                                    selectedImages.add(imageList[nextIndex])
+                                                                }
+
+                                                                Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
+                                                                refreshFolder()
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
-                                        } else {
 
-                                            Toast.makeText(context, "无法生成：未找到文件或文件夹", Toast.LENGTH_SHORT).show()
                                         }
-                                    },
-                                    onSelectedFileChange = { path ->
-                                        // 更新当前右下角弹窗或上下文菜单的文件
-                                        selectedFileForMenu = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == path }
-
-                                        // 如果处于多选模式，也可以同步更新多选列表
-                                        val file = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == path }
-                                        if (multiSelectMode && file != null && !file.is_dir) {
-                                            val fullPath = file.file_url ?: file.path
-                                            if (!selectedImages.contains(fullPath)) selectedImages.add(fullPath)
-                                        }
+                                    ) {
+                                        Text("删除", color = Color.Red)
                                     }
-                                )
-
-                            }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = {
+                                            showDeleteDialog = false
+                                            multiSelectMode = false
+                                        }
+                                    ) {
+                                        Text("取消")
+                                    }
+                                }
+                            )
                         }
 
                     }
                 }
             }
 
-            if (previewImagePath == null) {
+
+
+            if (true) {
                 // 🔹 底部路径切换条
                 Column(
                     modifier = Modifier
@@ -1310,7 +1340,67 @@ fun AlbumScreen(
             }
 
         }
+        if (previewImagePath != null && isImageListReady && imageList.isNotEmpty()) {
+            ImageDetailScreen(
+                imagePaths = imageList,
+                filePaths = fileList,
+                thumbPaths = thumbList,
+                initialIndex = currentImageIndex.value,
+                onClose = {
+                    selectedImages.clear()
+                    isTopBarVisible = true
+
+//                multiSelectMode = false
+                    previewImagePath = null
+                    isImageListReady = false
+                },
+                onGenerateClick = { selectedPath ->
+                    val file = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == selectedPath }
+                    if (file != null && !file.is_dir) {
+                        if (!multiSelectMode) {
+                            // 当前未多选，第一次点击，进入多选模式
+                            selectedImages.clear()
+                            selectedImages.add(file.file_url ?: file.path)
+                            multiSelectMode = true
+                        } else {
+                            // 当前已经多选，第二次点击，退出多选模式
+                            selectedImages.clear()
+                            multiSelectMode = false
+                        }
+                    } else {
+
+                        Toast.makeText(context, "无法生成：未找到文件或文件夹", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onImageClick = {
+                    isTopBarVisible = !isTopBarVisible
+                },
+                onSelectedFileChange = { path ->
+                    // 更新当前右下角弹窗或上下文菜单的文件
+                    selectedFileForMenu = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == path }
+//                    selectedImages.clear()
+//                    selectedImages.add(path)
+//                    Log.d("selectedImages", selectedImages.toString())
+                    // 如果处于多选模式，也可以同步更新多选列表
+                    val file = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == path }
+                    if (file != null && !file.is_dir) {
+                        val fullPath = file.file_url ?: file.path
+
+                        if (multiSelectMode){
+                            if (!selectedImages.contains(fullPath)) selectedImages.add(fullPath)
+                        } else {
+                            selectedImages.clear()
+                            selectedImages.add(fullPath)
+                        }
+
+                    }
+                }
+            )
+
+        }
     }
+
+
 
     if (showGenerateSheet) {
         ModalBottomSheet(
@@ -1525,18 +1615,21 @@ fun AlbumScreen(
     }
 
 
-    if (multiSelectMode && selectedImages.isNotEmpty()) {
+    if (isTopBarVisible && ((multiSelectMode && selectedImages.isNotEmpty()) || previewImagePath != null)) {
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .zIndex(10f)
         ) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 72.dp)
-                    .fillMaxWidth(0.8f)
-                    .clip(RoundedCornerShape(16.dp)),
+//                    .padding(bottom = 72.dp)
+//                    .fillMaxWidth(0.8f)
+                    .fillMaxWidth(1f)
+//                    .clip(RoundedCornerShape(16.dp))
+,
                 color = Color.White,
                 shadowElevation = 32.dp,     // 提升阴影
                 tonalElevation = 8.dp       // 细腻分层
@@ -1612,73 +1705,77 @@ fun AlbumScreen(
                     }
 
                     // --- 剪切 / 粘贴 ---
-                    IconActionButton(
-                        iconPainter = painterResource(
-                            id = if (cutList.isEmpty()) R.drawable.cut else R.drawable.paste
-                        ),
-                        tint = Color.Black,
-                        label = if (cutList.isEmpty()) "剪切" else "粘贴",
-                        contentDescription = if (cutList.isEmpty()) "剪切" else "粘贴",
-                        iconSize = if (cutList.isEmpty()) 28.dp else 26.dp
-                    ) {
-                        if (cutList.isEmpty()) {
-                            // ---------------------------------------
-                            //             执行“剪切”
-                            // ---------------------------------------
-                            if (selectedImages.isEmpty()) {
-                                Toast.makeText(context, "未选择任何图片", Toast.LENGTH_SHORT).show()
-                                return@IconActionButton
-                            }
+                    if (previewImagePath == null){
+                        IconActionButton(
+                            iconPainter = painterResource(
+                                id = if (cutList.isEmpty()) R.drawable.cut else R.drawable.paste
+                            ),
+                            tint = Color.Black,
+                            label = if (cutList.isEmpty()) "剪切" else "粘贴",
+                            contentDescription = if (cutList.isEmpty()) "剪切" else "粘贴",
+                            iconSize = if (cutList.isEmpty()) 28.dp else 26.dp
+                        ) {
+                            if (cutList.isEmpty()) {
+                                // ---------------------------------------
+                                //             执行“剪切”
+                                // ---------------------------------------
+                                if (selectedImages.isEmpty()) {
+                                    Toast.makeText(context, "未选择任何图片", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
 
-                            // 存储 file_path 而不是 file_url
-                            cutList = selectedImages.mapNotNull { path ->
-                                folderContent?.files?.find { it.file_url == path || it.path == path }?.path
-                            }
-                            cutSourceDir = currentPath
+                                // 存储 file_path 而不是 file_url
+                                cutList = selectedImages.mapNotNull { path ->
+                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.path
+                                }
+                                cutSourceDir = currentPath
 
-                            Toast.makeText(context, "已剪切 ${cutList.size} 项", Toast.LENGTH_SHORT).show()
-                            selectedImages.clear()
-                            multiSelectMode = false
-                        } else {
-                            // ---------------------------------------
-                            //             执行“粘贴”
-                            // ---------------------------------------
-                            val targetDir = currentPath
+                                Toast.makeText(context, "已剪切 ${cutList.size} 项", Toast.LENGTH_SHORT).show()
+                                selectedImages.clear()
+                                multiSelectMode = false
+                            } else {
+                                // ---------------------------------------
+                                //             执行“粘贴”
+                                // ---------------------------------------
+                                val targetDir = currentPath
 //                            Log.d("MoveFile", cutList.toString())
-                            if (targetDir == cutSourceDir) {
-                                Toast.makeText(context, "目标文件夹与原位置相同", Toast.LENGTH_SHORT).show()
-                                return@IconActionButton
-                            }
+                                if (targetDir == cutSourceDir) {
+                                    Toast.makeText(context, "目标文件夹与原位置相同", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
 
-                            scope.launch {
-                                cutList.forEach { fileUrl ->
-                                    try {
-                                        val src = fileUrl
-                                        val dest = targetDir
+                                scope.launch {
+                                    cutList.forEach { fileUrl ->
+                                        try {
+                                            val src = fileUrl
+                                            val dest = targetDir
 //
 //                                        Log.d("MoveFile", "准备移动文件：")
 //                                        Log.d("MoveFile", "src = $src")
 //                                        Log.d("MoveFile", "dest = $dest")
 
-                                        RetrofitClient.getApi().moveFile(src, dest)
+                                            RetrofitClient.getApi().moveFile(src, dest)
 
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        Toast.makeText(context, "移动失败: $fileUrl", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            Toast.makeText(context, "移动失败: $fileUrl", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
+
+                                    // 清空剪切板
+                                    cutList = emptyList()
+                                    cutSourceDir = ""
+
+                                    Toast.makeText(context, "已完成移动", Toast.LENGTH_SHORT).show()
+
+                                    // 刷新当前文件夹
+                                    refreshFolder()
+                                    multiSelectMode = false
                                 }
-
-                                // 清空剪切板
-                                cutList = emptyList()
-                                cutSourceDir = ""
-
-                                Toast.makeText(context, "已完成移动", Toast.LENGTH_SHORT).show()
-
-                                // 刷新当前文件夹
-                                refreshFolder()
-                                multiSelectMode = false
                             }
                         }
+
+
                     }
 
                     if (cutList.isEmpty()) {
@@ -1748,7 +1845,6 @@ fun AlbumScreen(
                         )
                     }
 
-
                     // --- 删除 ---
                     if (cutList.isEmpty()){
                         IconActionButton(
@@ -1777,6 +1873,7 @@ fun AlbumScreen(
                             Toast.makeText(context, "已清空", Toast.LENGTH_SHORT).show()
                         }
                     }
+
 
                 }
             }
