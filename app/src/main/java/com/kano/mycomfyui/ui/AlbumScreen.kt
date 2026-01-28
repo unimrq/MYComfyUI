@@ -83,6 +83,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -203,9 +204,6 @@ fun AlbumScreen(
     var inputText by remember { mutableStateOf("") }
     var isImageListReady by remember { mutableStateOf(false) }
     var isTopBarVisible by remember { mutableStateOf(true) }
-
-    val visibleFileCoordsMap = remember { mutableStateOf(mutableMapOf<String, ImageBounds>()) }
-
 
     val pathOptions = if (text2imgEnabled) {
         listOf(
@@ -401,6 +399,8 @@ fun AlbumScreen(
 
     var useDarkTopBar by remember { mutableStateOf(false) }
     val topBarColor = if (useDarkTopBar) Color.White else Color.Black
+    var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
+    val visibleCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
 
 
     LaunchedEffect(Unit) {
@@ -439,6 +439,8 @@ fun AlbumScreen(
             }
         }
     }
+
+
 
 
     BackHandler(enabled = true) {
@@ -776,7 +778,6 @@ fun AlbumScreen(
 
                         val allItems = sortedFolders + sortedFiles
                         val fileCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
-                        var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
 
                         if (readyToDisplay) {
 
@@ -819,35 +820,7 @@ fun AlbumScreen(
                             ) {
                                 GridWithVerticalScrollHandleOverlay(allItems = allItems, columns = 3, handleHeight = 40.dp, gridState = gridState) {
 
-                                    val scope = rememberCoroutineScope()
 
-                                    // 根据滚动位置更新可见图片的位置信息
-                                    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.layoutInfo.visibleItemsInfo) {
-                                        // 清理不在屏幕内的图片位置
-                                        visibleFileCoordsMap.value = visibleFileCoordsMap.value.filter { (key, _) ->
-                                            val visibleItems = gridState.layoutInfo.visibleItemsInfo
-                                            visibleItems.any { it.key == key }
-                                        }.toMutableMap()
-
-                                        // 获取当前可见区域内图片的位置信息
-                                        gridState.layoutInfo.visibleItemsInfo.forEach { item ->
-                                            val file = allItems[item.index]
-                                            val position = item.offset // 获取图片的位置
-
-                                            if (!visibleFileCoordsMap.value.containsKey(file.path)) {
-                                                visibleFileCoordsMap.value = visibleFileCoordsMap.value.toMutableMap().apply {
-                                                    put(file.path, ImageBounds(
-                                                        left = position.x.toFloat(),  // 确保使用 position.x 和 position.y
-                                                        top = item.offset.y.toFloat(), // 确保访问 item.offset.y
-                                                        width = item.size.width.toFloat(),  // item.size.width 是 Int 类型，转换为 Float
-                                                        height = item.size.height.toFloat()  // item.size.height 是 Int 类型，转换为 Float
-                                                    ))
-                                                }
-                                            }
-
-
-                                        }
-                                    }
 
                                     LazyVerticalGrid(
                                         state = gridState,
@@ -861,6 +834,18 @@ fun AlbumScreen(
                                         items(allItems, key = { it.path }) { file ->
 //                                            val fullUrl = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
 
+                                            LaunchedEffect(gridState) {
+                                                snapshotFlow { gridState.layoutInfo.visibleItemsInfo }
+                                                    .collect { visibleItems ->
+                                                        visibleCoordsMap.clear()
+                                                        visibleItems.forEach { itemInfo ->
+                                                            val key = itemInfo.key as? String ?: return@forEach
+                                                            fileCoordsMap[key]?.let { coords ->
+                                                                visibleCoordsMap[key] = coords
+                                                            }
+                                                        }
+                                                    }
+                                            }
 
                                             Column(
                                                 modifier = Modifier
@@ -957,12 +942,16 @@ fun AlbumScreen(
                                                                 val pos = coordinates.positionInWindow()
                                                                 val size = coordinates.size
 
-                                                                visibleFileCoordsMap.value[file.path] = ImageBounds(
-                                                                    left = pos.x,
-                                                                    top = pos.y,
-                                                                    width = size.width.toFloat(),
-                                                                    height = size.height.toFloat()
-                                                                )
+                                                                visibleCoordsMap[file.path]?.let { coords ->
+                                                                    val pos = coords.positionInWindow()
+                                                                    val size = coords.size
+                                                                    clickedThumbBounds = ImageBounds(
+                                                                        left = pos.x,
+                                                                        top = pos.y,
+                                                                        width = size.width.toFloat(),
+                                                                        height = size.height.toFloat()
+                                                                    )
+                                                                }
                                                             }
                                                     ) {
                                                         AsyncImage(
@@ -986,7 +975,7 @@ fun AlbumScreen(
 
                                                         val path = file.file_url ?: file.path
 
-                                                        if (selectedImages.contains(path) && multiSelectMode) {
+                                                        if (selectedImages.contains(path)) {
                                                             Box(
                                                                 modifier = Modifier
                                                                     .fillMaxSize()
@@ -1424,21 +1413,7 @@ fun AlbumScreen(
 
                     }
                 },
-                visibleFileCoordsMap = visibleFileCoordsMap,
-                // onScrollToPosition 用来滚动到目标图片
-                onScrollToPosition = { index ->
-                    scope.launch {
-                        // 获取当前屏幕可见区域的第一个和最后一个索引
-                        val firstVisibleIndex = gridState.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: 0
-                        val lastVisibleIndex = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-
-                        // 如果目标图片不在可见区域，才滚动到目标图片
-                        if (index !in firstVisibleIndex..lastVisibleIndex) {
-                            gridState.animateScrollToItem(index)  // 平滑滚动到目标图片
-                        }
-                    }
-                }
-
+                visibleCoordsMap = visibleCoordsMap
             )
 
         }
