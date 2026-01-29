@@ -1,14 +1,22 @@
 package com.kano.mycomfyui.data
 
+import com.kano.mycomfyui.network.ServerConfig
+
 
 data class FileInfo(
     val name: String,
     val is_dir: Boolean,
     val path: String,
-    val thumbnail_url: String? = null,
-    val file_url: String? = null,
-    val date: String? = null,
-)
+    val thumbnail_url: String? = "",
+    val file_url: String? = "",
+    val date: String? = "",
+) {
+    val net_url: String?
+        get() = file_url?.let { "${ServerConfig.baseUrl}$it" }
+    val thumb_url: String?
+        get() = thumbnail_url?.let { "${ServerConfig.baseUrl}$it" }
+}
+
 
 data class FolderContent(
     val parent: FileInfo,

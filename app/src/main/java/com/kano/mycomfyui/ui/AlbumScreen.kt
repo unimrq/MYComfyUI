@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -131,6 +133,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -184,7 +188,6 @@ fun AlbumScreen(
     val scrollPositions = remember {
         mutableStateMapOf<String, Pair<Int, Int>>()
     }
-    val view = LocalView.current
     val currentImageIndex = remember { mutableStateOf(0) }
     var progressVisible by remember { mutableStateOf(false) }
     var currentFileName by remember { mutableStateOf("") }
@@ -193,6 +196,7 @@ fun AlbumScreen(
     val imageList = remember { mutableStateListOf<String>() }
     val thumbList = remember { mutableStateListOf<String>() }
     val fileList = remember { mutableStateListOf<String>() }
+
     // 剪切板：存放待移动的文件
     var cutList by remember { mutableStateOf<List<String>>(emptyList()) }
     var cutSourceDir by remember { mutableStateOf("") }
@@ -273,17 +277,6 @@ fun AlbumScreen(
 
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    @Composable
-    fun rememberAuthImageLoader(context: Context): ImageLoader {
-        return remember {
-            ImageLoader.Builder(context)
-                .okHttpClient {
-                    OkHttpProvider.create(context)
-                }
-                .build()
         }
     }
 
@@ -402,7 +395,7 @@ fun AlbumScreen(
     var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
     val visibleCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
 
-
+    // 监测生命周期，在程序结束前保存目录状态
     LaunchedEffect(Unit) {
         refreshFolder()
         ProcessLifecycleOwner.get().lifecycle.addObserver(LifecycleEventObserver { _, event ->
@@ -420,56 +413,47 @@ fun AlbumScreen(
     }
 
     LaunchedEffect(currentPath) {
-        folderContent?.let { content ->
-            // 取文件夹名并限制长度
-            val folderName = run {
-                // 如果是当前目录
-                if (currentPath == "." || currentPath.isBlank()) {
-                    "根目录"
-                } else {
-                    // 用反斜杠分割路径
-                    val parts = currentPath.split('/').filter { it.isNotBlank() }
-                    val name = when {
-                        parts.isEmpty() -> "根目录"
-                        parts.size == 1 -> parts.last()
-                        else -> parts.takeLast(2).joinToString("/")  // 取最后两级
-                    }
-                    if (name.length > 12) name.take(12) + "…" else name
+        folderContent?.let {
+                when {
+                    currentPath.isBlank() || currentPath == "." -> "根目录"
+                else -> {
+                    currentPath.split('/')
+                        .filter { it.isNotBlank() }
+                        .takeLast(2)  // 取最后两级
+                        .joinToString("/")
+                        .let { if (it.length > 12) it.take(12) + "…" else it }
                 }
             }
         }
     }
 
-
-
-
     BackHandler(enabled = true) {
         when {
+            // 1️⃣ 多选模式 -> 退出多选
             multiSelectMode -> {
                 multiSelectMode = false
                 selectedImages.clear()
             }
 
-            previewImagePath != null -> {
-                // 如果正在预览大图，则先关闭预览
-                previewImagePath = null
-            }
+            // 2️⃣ 大图预览 -> 关闭预览
+            previewImagePath != null -> previewImagePath = null
 
-            currentTab != "最新" && currentPath != "素材" && currentPath != "动图" && currentPath != "修图" && currentPath != "生图" && folderContent?.parent != null -> {
-                // 非最新Tab，且有父目录时返回上一级
-                rememberDirectory(currentPath, folderContent!!.parent.path)
-                currentPath = folderContent!!.parent.path
-                scope.launch {
-                    refreshFolder()
+            // 3️⃣ 有父目录 -> 返回上一级
+            currentTab != "最新" &&
+                    currentPath !in listOf("素材", "动图", "修图", "生图") &&
+                    folderContent?.parent != null -> {
+                folderContent?.parent?.let { parent ->
+                    rememberDirectory(currentPath, parent.path)
+                    currentPath = parent.path
+                    scope.launch { refreshFolder() }
                 }
             }
 
-            else -> {
-                // 否则退出应用
-                onExitApp()
-            }
+            // 4️⃣ 否则退出应用
+            else -> onExitApp()
         }
     }
+
 
 
     Scaffold(
@@ -477,27 +461,43 @@ fun AlbumScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (true){
-                val displayPath = currentPath.split("/")
-                    .takeLast(2)
+                val pathParts = currentPath
+                    .split("/")
+                    .filter { it.isNotBlank() }
+
+                val bottomText = pathParts.lastOrNull() ?: ""
+
+                var topText = pathParts
+                    .dropLast(1)
                     .joinToString("·")
 
-                // 简单根据字符数控制字体大小
-                val fontSize = when {
-                    displayPath.length <= 10 -> 20.sp
-                    displayPath.length <= 20 -> 18.sp
-                    displayPath.length <= 30 -> 16.sp
-                    else -> 14.sp
+                while (topText.length > 15 && topText.contains("·")) {
+                    topText = topText.substringAfter("·")
                 }
+
+
+
+
                 if (isTopBarVisible) {
                     TopAppBar(
                         title = {
-                            Text(
-                                text = displayPath,
-                                color = topBarColor,
-                                fontSize = fontSize,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Column {
+                                Text(
+                                    text = topText,
+                                    color = topBarColor,
+                                    fontSize = 18.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = bottomText,
+                                    color = topBarColor,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
                         },
                         actions = {
                             Row(
@@ -537,9 +537,7 @@ fun AlbumScreen(
                                             )
                                         }
                                     }
-
                                 }
-
 
                                 var expanded by remember { mutableStateOf(false) }
 
@@ -579,38 +577,6 @@ fun AlbumScreen(
                                         }
                                     )
 
-//                                DropdownMenuItem(
-//                                    text = { Text("地址设置") },
-//                                    onClick = {
-//                                        expanded = false
-//                                        navController.navigate("address_settings")
-//                                        currentPath = "素材"
-//                                    }
-//                                )
-//
-//                                DropdownMenuItem(
-//                                    text = { Text("功能设置") },
-//                                    onClick = {
-//                                        expanded = false
-//                                        navController.navigate("function_settings")
-//                                    }
-//                                )
-//
-//                                DropdownMenuItem(
-//                                    text = { Text("提示词") },
-//                                    onClick = {
-//                                        expanded = false
-//                                        navController.navigate("prompt_list")
-//                                    }
-//                                )
-//
-//                                DropdownMenuItem(
-//                                    text = { Text("帮助") },
-//                                    onClick = {
-//                                        expanded = false
-//                                        navController.navigate("help")
-//                                    }
-//                                )
                                     DropdownMenuItem(
                                         text = { Text("设置") },
                                         onClick = {
@@ -662,64 +628,64 @@ fun AlbumScreen(
 
         }
     ) {
-//        val configuration = LocalConfiguration.current
-//        val density = LocalDensity.current
-//        val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+
+        val hideStates = remember { mutableStateMapOf<String, Boolean>() }
 
         Box (
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
-//                .pointerInput(currentTab, multiSelectMode) {
-//
-//                    if (!multiSelectMode) { // 多选模式下不响应滑动
-//                        detectHorizontalDragGestures { change, dragAmount ->
-//                            val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
-//                            scope.launch {
-//                                if (dragAmount > 30 && currentIndex > 0) { // 向右
-//                                    val newTab = pathOptions[currentIndex - 1]
-//
-//                                    // 1. 保存旧路径
-//                                    savePath(currentTab, currentPath)
-//
-//                                    // 2. 切 tab
-//                                    currentTab = newTab.first
-//
-//                                    // 3. 获取新路径
-//                                    var targetPath = getSavedPath(newTab.first, newTab.second)
-//                                    if (!targetPath.contains(newTab.second)){
-//                                        targetPath = newTab.second
-//                                    }
-//                                    // 4. 记忆目录
-//                                    rememberDirectory(currentPath, targetPath)
-//
-//                                    // 5. 修改 currentPath
-//                                    currentPath = targetPath
-//
-//                                    // 6. 刷新
-//                                    refreshFolder()
-//
-//                                } else if (dragAmount < -30 && currentIndex < pathOptions.size - 1) { // 向左
-//                                    val newTab = pathOptions[currentIndex + 1]
-//
-//                                    savePath(currentTab, currentPath)
-//                                    currentTab = newTab.first
-//
-//                                    var targetPath = getSavedPath(newTab.first, newTab.second)
-//                                    if (!targetPath.contains(newTab.second)){
-//                                        targetPath = newTab.second
-//                                    }
-//                                    rememberDirectory(currentPath, targetPath)
-//                                    currentPath = targetPath
-//
-//                                    refreshFolder()
-//                                }
-//                            }
-//
-//                        }
-//                    }
-//                }
+                .pointerInput(currentTab, multiSelectMode) {
+
+                    if (!multiSelectMode) { // 多选模式下不响应滑动
+                        detectHorizontalDragGestures { change, dragAmount ->
+                            val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
+                            scope.launch {
+                                if (dragAmount > 30 && currentIndex > 0) { // 向右
+                                    val newTab = pathOptions[currentIndex - 1]
+
+                                    // 1. 保存旧路径
+                                    savePath(currentTab, currentPath)
+
+                                    // 2. 切 tab
+                                    currentTab = newTab.first
+
+                                    // 3. 获取新路径
+                                    var targetPath = getSavedPath(newTab.first, newTab.second)
+                                    if (!targetPath.contains(newTab.second)){
+                                        targetPath = newTab.second
+                                    }
+                                    // 4. 记忆目录
+                                    rememberDirectory(currentPath, targetPath)
+
+                                    // 5. 修改 currentPath
+                                    currentPath = targetPath
+
+                                    // 6. 刷新
+                                    refreshFolder()
+
+                                } else if (dragAmount < -30 && currentIndex < pathOptions.size - 1) { // 向左
+                                    val newTab = pathOptions[currentIndex + 1]
+
+                                    savePath(currentTab, currentPath)
+                                    currentTab = newTab.first
+
+                                    var targetPath = getSavedPath(newTab.first, newTab.second)
+                                    if (!targetPath.contains(newTab.second)){
+                                        targetPath = newTab.second
+                                    }
+                                    rememberDirectory(currentPath, targetPath)
+                                    currentPath = targetPath
+
+                                    refreshFolder()
+                                }
+                            }
+
+                        }
+                    }
+                }
         ) {
+
 
             Column(modifier = Modifier.fillMaxSize()) {
 
@@ -795,7 +761,7 @@ fun AlbumScreen(
 
                                         // 计算已用时间
                                         val elapsed = System.currentTimeMillis() - startTime
-                                        val minDuration = 250L // 1.5 秒
+                                        val minDuration = 180L
 
                                         if (elapsed < minDuration) {
                                             delay(minDuration - elapsed) // 等待剩余时间
@@ -820,20 +786,98 @@ fun AlbumScreen(
                             ) {
                                 GridWithVerticalScrollHandleOverlay(allItems = allItems, columns = 3, handleHeight = 40.dp, gridState = gridState) {
 
+                                    fun getItemIndexAndFileByPreviewPath(path: String?): Pair<Int, FileInfo?> {
+                                        if (path == null) return -1 to null
+                                        val index = allItems.indexOfFirst { file -> path == file.net_url }
+                                        val file = if (index >= 0) allItems[index] else null
+                                        return index to file
+                                    }
 
+
+                                    fun isItemVisible(gridState: LazyGridState, index: Int): Boolean {
+                                        if (index == -1) return false
+                                        val visibleItems = gridState.layoutInfo.visibleItemsInfo
+                                        val firstVisible = visibleItems.firstOrNull()?.index ?: -1
+                                        val lastVisible = visibleItems.lastOrNull()?.index ?: -1
+                                        return index in firstVisible..lastVisible
+                                    }
+                                    LaunchedEffect(previewImagePath) {
+                                        previewImagePath?.let { path ->
+//                                            Log.d("delete1", selectedImages.toString())
+//                                            Log.d("delete2", previewImagePath.toString())
+                                            // 如果不在 selectedImages 中，则加入
+//                                            val relativePath = path.substringAfter("photos/")      // 返回 "素材/upload_1769661571118.jpg"
+//                                            val finalPath = "photos/$relativePath"               // 补回前缀 "photos/"
+//                                            if (!selectedImages.contains(finalPath)) {
+//                                                selectedImages.add(finalPath)
+//                                            }
+//                                            Log.d("delete","变化")
+                                            // 找到目标索引
+                                            val (targetIndex, targetFile) = getItemIndexAndFileByPreviewPath(path)
+//                                            Log.d("delete","targetIndex:${targetIndex}")
+                                            if (!selectedImages.contains(targetFile?.file_url ?: "")) {
+                                                selectedImages.add(targetFile?.file_url ?: "")
+                                            }
+                                            // 如果不在可见范围，滚动到它
+                                            delay(200)
+                                            if (!isItemVisible(gridState, targetIndex)) {
+                                                gridState.animateScrollToItem(targetIndex)
+                                            }
+                                        }
+                                    }
+//                                    LaunchedEffect(previewImagePath) {
+//                                        previewImagePath?.let { path ->
+//                                            val (targetIndex, targetFile) = getItemIndexAndFileByPreviewPath(path)
+//                                            // 等待下一帧 Compose 刷新
+//                                            snapshotFlow { gridState.layoutInfo.totalItemsCount }
+//                                                .filter { it > 0 } // 确保 item 已经更新
+//                                                .first()
+//                                            if (!selectedImages.contains(targetFile?.file_url ?: "")) {
+//                                                selectedImages.add(targetFile?.file_url ?: "")
+//                                            }
+//                                            if (!isItemVisible(gridState, targetIndex)) {
+//                                                gridState.animateScrollToItem(targetIndex)
+//                                            }
+//                                        }
+//                                    }
 
                                     LazyVerticalGrid(
                                         state = gridState,
                                         columns = GridCells.Fixed(3),
                                         modifier = Modifier
                                             .fillMaxSize(),
-                                        contentPadding = PaddingValues(top = 120.dp, bottom = 80.dp),
+                                        contentPadding = PaddingValues(top = 120.dp, bottom = 64.dp),
                                         verticalArrangement = Arrangement.spacedBy(1.dp),
                                         horizontalArrangement = Arrangement.spacedBy(1.dp)
                                     ) {
                                         items(allItems, key = { it.path }) { file ->
 //                                            val fullUrl = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
+                                            val url = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
 
+                                            if (!hideStates.containsKey(url)) {
+                                                hideStates[url.toString()] = false
+                                            }
+
+                                            LaunchedEffect(Unit) {
+                                                snapshotFlow { previewImagePath }
+                                                    .collect { currentPreviewPath ->
+//                                                        Log.d("hideStates", "currentPreviewPath: $currentPreviewPath")
+//                                                        Log.d("hideStates", "url: $url")
+//                                                        Log.d("hideStates", "相等吗: ${currentPreviewPath == url}")
+
+                                                        if (currentPreviewPath == url) {
+//                                                            Log.d("hideStates", "设置隐藏: true")
+                                                            delay(50)
+                                                            hideStates[url.toString()] = true
+                                                            // 立即打印确认
+//                                                            Log.d("hideStates", "设置后状态: ${hideStates[url]}")
+                                                        } else {
+                                                            // 重要：添加恢复逻辑
+//                                                            Log.d("hideStates", "设置显示: false")
+                                                            hideStates[url.toString()] = false
+                                                        }
+                                                    }
+                                            }
                                             LaunchedEffect(gridState) {
                                                 snapshotFlow { gridState.layoutInfo.visibleItemsInfo }
                                                     .collect { visibleItems ->
@@ -846,6 +890,8 @@ fun AlbumScreen(
                                                         }
                                                     }
                                             }
+
+
 
                                             Column(
                                                 modifier = Modifier
@@ -862,27 +908,23 @@ fun AlbumScreen(
                                                                 scope.launch { refreshFolder() }
                                                             } else {
                                                                 // 文件才使用 URL
-                                                                val url = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
                                                                 if (url == null) {
                                                                     Toast.makeText(context, "文件未准备好，请稍候", Toast.LENGTH_SHORT).show()
                                                                     return@combinedClickable
                                                                 }
-                                                                val path = file.file_url ?: file.path
                                                                 if (multiSelectMode) {
 
-                                                                    if (selectedImages.contains(path)) {
-                                                                        selectedImages.remove(path)
+                                                                    if (selectedImages.contains(file.file_url)) {
+                                                                        selectedImages.remove(file.file_url)
                                                                     } else {
-                                                                        selectedImages.add(path)
+                                                                        selectedImages.add(file.file_url)
                                                                     }
                                                                 } else {
-                                                                    previewImagePath = url
+                                                                    previewImagePath = file.net_url
                                                                     selectedFileForMenu = file
-//                                                                    multiSelectMode = true
-                                                                    selectedImages.add(path)
+                                                                    selectedImages.add(file.file_url)
 
                                                                 }
-//                                                                Log.d("Bounds", clickedThumbBounds.toString())
                                                             }
                                                         },
                                                         onLongClick = {
@@ -939,41 +981,59 @@ fun AlbumScreen(
                                                         modifier = Modifier
                                                             .fillMaxSize()
                                                             .onGloballyPositioned { coordinates ->
-                                                                val pos = coordinates.positionInWindow()
-                                                                val size = coordinates.size
+//                                                                val pos = coordinates.positionInWindow()
+//                                                                val size = coordinates.size
 
                                                                 visibleCoordsMap[file.path]?.let { coords ->
-                                                                    val pos = coords.positionInWindow()
-                                                                    val size = coords.size
-                                                                    clickedThumbBounds = ImageBounds(
-                                                                        left = pos.x,
-                                                                        top = pos.y,
-                                                                        width = size.width.toFloat(),
-                                                                        height = size.height.toFloat()
-                                                                    )
+                                                                    try {
+                                                                        // 检查是否仍然有效
+                                                                        if (coords.isAttached) {
+                                                                            val pos = coords.positionInWindow()
+                                                                            val size = coords.size
+                                                                            clickedThumbBounds = ImageBounds(
+                                                                                left = pos.x,
+                                                                                top = pos.y,
+                                                                                width = size.width.toFloat(),
+                                                                                height = size.height.toFloat()
+                                                                            )
+                                                                        } else {
+                                                                            // 清理无效的坐标
+                                                                            visibleCoordsMap.remove(file.path)
+                                                                            clickedThumbBounds = null
+                                                                        }
+                                                                    } catch (e: IllegalStateException) {
+                                                                        // 捕获异常并清理
+                                                                        visibleCoordsMap.remove(file.path)
+                                                                        clickedThumbBounds = null
+//                                                                        Log.w("ThumbnailClick", "坐标已失效: ${e.message}")
+                                                                    }
                                                                 }
                                                             }
                                                     ) {
-                                                        AsyncImage(
-                                                            model = ImageRequest.Builder(context)
-                                                                .data(file.thumbnail_url?.let { "${ServerConfig.baseUrl}$it" }
-                                                                    ?: file.file_url)
-                                                                .diskCacheKey(file.file_url ?: file.path)
-                                                                .diskCachePolicy(CachePolicy.ENABLED)
-                                                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                                                .networkCachePolicy(CachePolicy.ENABLED)
-                                                                .crossfade(true)
+                                                        val path = file.file_url
+//                                                        val currentHideState = hideStates[url] ?: false
+//                                                        Log.d("hideStates", "检查状态 - url: $url, 状态: $currentHideState, 应该显示: ${!currentHideState}")
 
-                                                                .build(),
-                                                            contentDescription = file.name,
-                                                            contentScale = ContentScale.Crop,
-                                                            modifier = Modifier
-                                                                .fillMaxSize()
-                                                                .clip(RoundedCornerShape(0.dp))
-                                                                .background(Color.LightGray)
-                                                        )
-
-                                                        val path = file.file_url ?: file.path
+                                                        hideStates[url.toString()]?.let { it1 ->
+                                                            if (!it1){
+                                                                AsyncImage(
+                                                                    model = ImageRequest.Builder(context)
+                                                                        .data(file.thumb_url ?: file.net_url)
+                                                                        .diskCacheKey(file.file_url ?: file.path)
+                                                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                                                        .networkCachePolicy(CachePolicy.ENABLED)
+                                                                        .crossfade(true)
+                                                                        .build(),
+                                                                    contentDescription = file.name,
+                                                                    contentScale = ContentScale.Crop,
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .clip(RoundedCornerShape(0.dp))
+                                                                        .background(Color.LightGray)
+                                                                )
+                                                            }
+                                                        }
 
                                                         if (selectedImages.contains(path)) {
                                                             Box(
@@ -1062,8 +1122,8 @@ fun AlbumScreen(
                                 thumbList.clear()
                                 fileList.clear()
 
-                                imageList.addAll(filteredFiles.map { "${ServerConfig.baseUrl}${it.file_url}" })
-                                thumbList.addAll(filteredFiles.map { "${ServerConfig.baseUrl}${it.thumbnail_url}" })
+                                imageList.addAll(filteredFiles.map { "${it.net_url}" })
+                                thumbList.addAll(filteredFiles.map { "${it.thumb_url}" })
                                 fileList.addAll(filteredFiles.map { it.path })
 
                                 if (currentImageIndex.value >= imageList.size) {
@@ -1100,8 +1160,7 @@ fun AlbumScreen(
                                                 }
 
                                                 filesToDelete.forEach { file ->
-                                                    val url = "${ServerConfig.baseUrl}${file.file_url ?: file.path}"
-                                                    val index = imageList.indexOf(url)
+                                                    val index = imageList.indexOf(file.net_url)
                                                     if (index >= 0) {
                                                         imageList.removeAt(index)
                                                         thumbList.removeAt(index)
@@ -1121,6 +1180,7 @@ fun AlbumScreen(
                                                         }
                                                     }.awaitAll()
                                                     // 清理状态
+//                                                    Log.d("selectedImages1", selectedImages.toString())
                                                     selectedImages.clear()
                                                     multiSelectMode = false
                                                     Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
@@ -1132,8 +1192,7 @@ fun AlbumScreen(
                                                     val fileToDelete = folderContent?.files?.find { it.file_url == currentPath || it.path == currentPath }
 
                                                     fileToDelete?.let { file ->
-                                                        val url = "${ServerConfig.baseUrl}${file.file_url ?: file.path}"
-                                                        val index = imageList.indexOf(url)
+                                                        val index = imageList.indexOf(file.net_url)
                                                         if (index >= 0) {
                                                             imageList.removeAt(index)
                                                             thumbList.removeAt(index)
@@ -1142,20 +1201,18 @@ fun AlbumScreen(
                                                             scope.launch {
                                                                 try {
                                                                     RetrofitClient.getApi().deleteFile(file.path)
+                                                                    val newIndex = index.coerceAtMost(imageList.lastIndex)
+                                                                    previewImagePath = if (newIndex >= 0) imageList[newIndex] else null
+                                                                    currentIndex = newIndex
+                                                                    currentImageIndex.value = newIndex
+                                                                    selectedImages.remove(file.file_url ?: file.path)
                                                                 } catch (e: Exception) {
                                                                     e.printStackTrace()
                                                                 }
-
-                                                                // 删除完当前照片后更新 selectedImages
-                                                                selectedImages.clear()
-
-                                                                val nextIndex = index.coerceAtMost(imageList.lastIndex)
-                                                                if (nextIndex in imageList.indices) {
-                                                                    selectedImages.add(imageList[nextIndex])
-                                                                }
-
                                                                 Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
                                                                 refreshFolder()
+
+
                                                             }
                                                         }
                                                     }
@@ -1240,36 +1297,6 @@ fun AlbumScreen(
                                             }
                                         }
                                     )
-//                                    .pointerInput(multiSelectMode, currentTab) {
-//                                        if (!multiSelectMode) {
-//                                            detectTapGestures(
-//                                                onTap = {
-//                                                    scope.launch {
-//                                                        // 1. 保存当前路径
-//                                                        savePath(currentTab, currentPath)
-//
-//                                                        // 2. 切 tab
-//                                                        currentTab = displayName
-//
-//                                                        // 3. 获取 tab 对应路径（保证顺序）
-//                                                        val path = getSavedPath(displayName, defaultPath)
-//
-//                                                        // 4. 更新 currentPath
-//                                                        currentPath = path
-//
-//                                                        // 5. 刷新
-//                                                        refreshFolder()
-//                                                    }
-//                                                },
-//                                                onDoubleTap = {
-//                                                    // 双击滚动到顶部
-//                                                    scope.launch {
-//                                                        gridState.animateScrollToItem(0)
-//                                                    }
-//                                                }
-//                                            )
-//                                        }
-//                                    }
                                     .fillMaxSize()
                             ) {
                                 Text(
@@ -1365,15 +1392,20 @@ fun AlbumScreen(
                 thumbPaths = thumbList,
                 initialIndex = currentImageIndex.value,
                 onClose = {
-                    selectedImages.clear()
-                    isTopBarVisible = true
+//                    hideStates.keys.forEach { key ->
+//                        hideStates[key] = false
+//                    }
+                    scope.launch {
+                        delay(0) // 等待100ms，让缩略图显示动画完成
+                        selectedImages.clear()
+                        isTopBarVisible = true
+                        previewImagePath = null
+                        isImageListReady = false
+                    }
 
-//                multiSelectMode = false
-                    previewImagePath = null
-                    isImageListReady = false
                 },
                 onGenerateClick = { selectedPath ->
-                    val file = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == selectedPath }
+                    val file = folderContent?.files?.find { "${it.net_url}" == selectedPath }
                     if (file != null && !file.is_dir) {
                         if (!multiSelectMode) {
                             // 当前未多选，第一次点击，进入多选模式
@@ -1395,22 +1427,20 @@ fun AlbumScreen(
                 },
                 onSelectedFileChange = { path ->
                     // 更新当前右下角弹窗或上下文菜单的文件
-                    selectedFileForMenu = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == path }
-//                    selectedImages.clear()
-//                    selectedImages.add(path)
-//                    Log.d("selectedImages", selectedImages.toString())
+                    selectedFileForMenu = folderContent?.files?.find { "${it.net_url}" == path }
                     // 如果处于多选模式，也可以同步更新多选列表
-                    val file = folderContent?.files?.find { "${ServerConfig.baseUrl}${it.file_url}" == path }
+                    val file = folderContent?.files?.find { "${it.net_url}" == path }
                     if (file != null && !file.is_dir) {
                         val fullPath = file.file_url ?: file.path
-
                         if (multiSelectMode){
                             if (!selectedImages.contains(fullPath)) selectedImages.add(fullPath)
                         } else {
                             selectedImages.clear()
                             selectedImages.add(fullPath)
+                            hideStates.clear()
+                            hideStates[file.net_url.toString()] = true
+                            previewImagePath = file.net_url
                         }
-
                     }
                 },
                 visibleCoordsMap = visibleCoordsMap
@@ -1418,7 +1448,6 @@ fun AlbumScreen(
 
         }
     }
-
 
 
     if (showGenerateSheet) {
@@ -1552,84 +1581,42 @@ fun AlbumScreen(
     }
 
     if (showNudeSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showNudeSheet = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 24.dp)
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (maskEnabled) {
-                        Button(
-                            onClick = {
-                                showNudeSheet = false
-                                scope.launch {
-                                    performNudeGeneration(
-                                        context = context,
-                                        selectedImages = selectedImages,
-                                        folderContent = folderContent,
-                                        refreshFolder = { scope.launch {
-                                            refreshFolder()
-                                        } },
-                                        clearSelection = {
-                                            selectedImages.clear()
-                                            multiSelectMode = false
-                                        },
-                                        creativeMode = false
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("蒙版模式")
-                        }
-                    }
-
-
-                    Button(
-                        onClick = {
-                            showNudeSheet = false
-                            scope.launch {
-                                performNudeGeneration(
-                                    context = context,
-                                    selectedImages = selectedImages,
-                                    folderContent = folderContent,
-                                    refreshFolder = { scope.launch {
-                                        refreshFolder()
-                                    } },
-                                    clearSelection = {
-                                        selectedImages.clear()
-                                        multiSelectMode = false
-                                    },
-                                    creativeMode = true
-                                )
-                            }
+        NudeModeBottomSheet(
+            maskEnabled = maskEnabled,
+            onDismiss = { showNudeSheet = false },
+            onMaskModeClick = {
+                showNudeSheet = false
+                scope.launch {
+                    performNudeGeneration(
+                        context = context,
+                        selectedImages = selectedImages,
+                        folderContent = folderContent,
+                        refreshFolder = { scope.launch { refreshFolder() } },
+                        clearSelection = {
+                            selectedImages.clear()
+                            multiSelectMode = false
                         },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xffb3424a)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("创意模式")
-                    }
+                        creativeMode = false
+                    )
                 }
-
-                Spacer(Modifier.height(8.dp))
+            },
+            onCreativeModeClick = {
+                showNudeSheet = false
+                scope.launch {
+                    performNudeGeneration(
+                        context = context,
+                        selectedImages = selectedImages,
+                        folderContent = folderContent,
+                        refreshFolder = { scope.launch { refreshFolder() } },
+                        clearSelection = {
+                            selectedImages.clear()
+                            multiSelectMode = false
+                        },
+                        creativeMode = true
+                    )
+                }
             }
-        }
+        )
 
     }
 
@@ -1644,10 +1631,7 @@ fun AlbumScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-//                    .padding(bottom = 72.dp)
-//                    .fillMaxWidth(0.8f)
                     .fillMaxWidth(1f)
-//                    .clip(RoundedCornerShape(16.dp))
 ,
                 color = Color.White,
                 shadowElevation = 32.dp,     // 提升阴影
@@ -1768,11 +1752,6 @@ fun AlbumScreen(
                                         try {
                                             val src = fileUrl
                                             val dest = targetDir
-//
-//                                        Log.d("MoveFile", "准备移动文件：")
-//                                        Log.d("MoveFile", "src = $src")
-//                                        Log.d("MoveFile", "dest = $dest")
-
                                             RetrofitClient.getApi().moveFile(src, dest)
 
                                         } catch (e: Exception) {
@@ -1952,6 +1931,7 @@ fun AlbumScreen(
             }
         }
     }
+
 
     if (showCreateFolderDialog) {
         var folderName by remember { mutableStateOf("") }

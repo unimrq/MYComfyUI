@@ -121,4 +121,13 @@ interface ApiService {
         @Field("src") src: String,
         @Field("dest") dest: String
     ): Response<Unit>
+
+    data class ServerStatusResponse(
+        val alive: Boolean
+    )
+
+    /** 获取服务器运行状态 */
+    @GET("/api/server/status")
+    suspend fun getServerStatus(): ServerStatusResponse
+
 }

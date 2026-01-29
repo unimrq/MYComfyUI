@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.fontscaling.MathUtils.lerp
 import androidx.compose.ui.zIndex
 import androidx.media3.common.util.Log
+import kotlinx.coroutines.delay
 import kotlin.math.pow
 
 @OptIn(UnstableApi::class)
@@ -171,14 +172,26 @@ fun ImageDetailScreen(
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     var isTopBarVisible by remember { mutableStateOf(true) }
-    var showControlBar by remember { mutableStateOf(true) }
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
     if (imagePaths.isEmpty()) return
-    val imagePath = imagePaths[currentIndex]
+    // 创建安全的获取函数
+    fun getSafeImagePath(imagePaths: List<String>, index: Int): String? {
+        return if (index in imagePaths.indices) {
+            imagePaths[index]
+        } else if (imagePaths.isNotEmpty()) {
+            // 如果越界，返回最后一个
+            imagePaths.last()
+        } else {
+            null
+        }
+    }
+
+// 使用
+    val imagePath = getSafeImagePath(imagePaths, currentIndex) ?: return
     val isVideo = imagePath.lowercase().endsWith(".mp4")
 
     // 缩放和平移
@@ -193,10 +206,6 @@ fun ImageDetailScreen(
     var imageSize by remember { mutableStateOf(IntSize.Zero) }
 
 
-
-    // 临时存储单指滑动的累计距离
-    var dragAccumulation by remember { mutableStateOf(Offset.Zero) }
-
     // 动画
     // 下拽相关
     var dragY by remember { mutableStateOf(0f) }
@@ -206,26 +215,7 @@ fun ImageDetailScreen(
 
     // 阈值
     val animateThreshold = screenHeightPx * 0.5f
-    val closeThreshold = screenHeightPx * 0.08f
-
-
-//    val dragProgress = (dragY / closeThreshold).coerceIn(0f, 1f)
-//
-//    val startRect = thumbBounds?.toRect() ?: Rect(0f, 0f, screenWidthPx, screenHeightPx)
-//
-//    val endRect = remember(thumbBounds) {
-//        thumbBounds?.toRect()
-//    }
-    val dismissProgress = remember { Animatable(0f) }
-//    fun lerpRect(start: Rect, end: Rect, fraction: Float): Rect {
-//        return Rect(
-//            lerp(start.left, end.left, fraction),
-//            lerp(start.top, end.top, fraction),
-//            lerp(start.right, end.right, fraction),
-//            lerp(start.bottom, end.bottom, fraction)
-//        )
-//    }
-//    val cornerRadius = lerp(start = 0.dp, stop = 16.dp, fraction = dismissProgress.value)
+    val closeThreshold = screenHeightPx * 0.03f
     var isClosing by remember { mutableStateOf(false) }
 
     var isAnimateTriggered by remember { mutableStateOf(false) }
@@ -239,12 +229,14 @@ fun ImageDetailScreen(
         }
     }
 
-    val backgroundAlpha = if (!isAnimateTriggered) {
-        val dragProgress = (dragY / animateThreshold).coerceIn(0f, 1f)
-        // 非线性快速衰减
-        1f - dragProgress.pow(0.04f)
-    } else {
-        0f
+    val backgroundAlpha  by derivedStateOf {
+        if (!isAnimateTriggered) {
+            val dragProgress = (dragY / animateThreshold).coerceIn(0f, 1f)
+            // 非线性快速衰减
+            1f - dragProgress.pow(0.2f)
+        } else {
+            0f
+        }
     }
 
     var lockedRect by remember { mutableStateOf<Rect?>(null) }
@@ -283,10 +275,13 @@ fun ImageDetailScreen(
             }
         }
     }
-
+    var imageAlpha by remember { mutableStateOf(0f) }
 
     val animateFraction = remember { Animatable(0f) }
-    val coords = visibleCoordsMap[filePaths[currentIndex]]
+    val safeIndex = if (currentIndex >= filePaths.size) currentIndex - 1 else currentIndex
+    val coords = visibleCoordsMap[filePaths.getOrNull(safeIndex)]
+
+
     val thumbRect = coords?.let {
         val position = it.positionInWindow()   // 左上角相对于窗口
         val size = it.size                     // IntSize
@@ -300,8 +295,6 @@ fun ImageDetailScreen(
 
     val startRectNonNull = fullImageRect ?: Rect(0f, 0f, screenWidthPx, screenHeightPx)
     val endRectNonNull = thumbRect ?: startRectNonNull
-//    val animatedRect = lerpRect(startRectNonNull, endRectNonNull, animateFraction.value)
-//    val scaleOffset = lerpScaleOffset(startRectNonNull, endRectNonNull, animateFraction.value)
 
     data class Transform(
         val scale: Float,
@@ -318,26 +311,6 @@ fun ImageDetailScreen(
 
 
     var closeSnapshot by remember { mutableStateOf<CloseAnimSnapshot?>(null) }
-
-//    val targetTransform: Transform? = closeSnapshot?.let { snapshot ->
-//
-//        val scaleX = snapshot.endRect.width / snapshot.startRect.width
-//        val scaleY = snapshot.endRect.height / snapshot.startRect.height
-//
-//        // 因为你是“先裁成正方形再飞”，这里用 max 是对的
-//        val targetScale = maxOf(scaleX, scaleY)
-//
-//        val startCenter = snapshot.startRect.center
-//        val endCenter = snapshot.endRect.center
-//
-//        // ⭐ 关键修正点
-//        val targetOffset = endCenter - startCenter * targetScale
-//
-//        Transform(
-//            scale = targetScale,
-//            offset = targetOffset
-//        )
-//    }
 
     fun rectToRectTransform(
         start: Rect,
@@ -360,7 +333,6 @@ fun ImageDetailScreen(
         )
     }
 
-    val start = startRectNonNull
     val end = endRectNonNull
 
     val targetTransform = rectToRectTransform(
@@ -455,12 +427,12 @@ fun ImageDetailScreen(
         if (full != null && thumb != null &&
             startClipRect != null && targetClipRect != null
         ) {
-            if (closeSnapshot == null) {
-                closeSnapshot = CloseAnimSnapshot(
-                    startRect = full,
-                    endRect = thumb,
-                )
-            }
+//            if (closeSnapshot == null) {
+//                closeSnapshot = CloseAnimSnapshot(
+//                    startRect = full,
+//                    endRect = thumb,
+//                )
+//            }
 
             isAnimateTriggered = true
 
@@ -488,30 +460,17 @@ fun ImageDetailScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if(isTopBarVisible) Color.White.copy(alpha = backgroundAlpha) else Color.Black.copy(alpha = backgroundAlpha))
+            .background(if(isTopBarVisible) Color.White.copy(alpha = backgroundAlpha * (1 - animateFraction.value)) else Color.Black.copy(alpha = backgroundAlpha * (1 - animateFraction.value)))
             .onSizeChanged { containerSize = it }
             .zIndex(if(isTopBarVisible) 0f else 12f)
             .pointerInput(currentIndex) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val newScale = (scale * zoom).coerceIn(minScale, maxScale)
 
-//                    Log.d("ges", isDismissTriggered.toString())
                     if (!isAnimateTriggered) {
-                        // ✅ 未达到关闭阈值
-//                        offset = (offset + centroid) - ((centroid) * (newScale / scale))
                         scale = newScale
-
                         if (scale > 1f) {
                             // 放大状态 → 平移图片
-//                            val newOffset = offset + pan
-//                            val scaledWidth = imageSize.width * scale
-//                            val scaledHeight = imageSize.height * scale
-//                            val maxOffsetX = maxOf((scaledWidth - containerSize.width) / 2f, 0f)
-//                            val maxOffsetY = maxOf((scaledHeight - containerSize.height) / 2f, 0f)
-//                            offset = Offset(
-//                                newOffset.x.coerceIn(-maxOffsetX, maxOffsetX),
-//                                newOffset.y.coerceIn(-maxOffsetY, maxOffsetY)
-//                            )
                             offset += pan
                         } else if (zoom == 1f && scale == 1f) {
 
@@ -525,6 +484,7 @@ fun ImageDetailScreen(
                                 offset += pan / newScale
                                 if (dragY > animateThreshold && closeSnapshot == null) {
                                     triggerClose()
+//                                    isAnimateTriggered = true
                                 }
                                 if (dragY > closeThreshold) {
                                     isCloseTriggered = true
@@ -577,20 +537,6 @@ fun ImageDetailScreen(
                             onImageClick()
                         }
                         isTopBarVisible = !isTopBarVisible
-//                        closeSnapshot = CloseAnimSnapshot(
-//                            startRect = fullImageRect!!,
-//                            endRect = thumbRect!!
-//                        )
-//                        isClosing = true
-//                        scope.launch {
-//                            animateFraction.snapTo(0f)
-//                            animateFraction.animateTo(
-//                                targetValue = 1f,
-//                                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
-//                            )
-//                            // 动画完成后执行关闭
-//                            onClose()
-//                        }
                     },
                     onDoubleTap = {
                         if (scale > 1f) {
@@ -608,42 +554,15 @@ fun ImageDetailScreen(
                         val event = awaitPointerEvent()
                         if (event.changes.all { !it.pressed }) {
                             if (isCloseTriggered) {
-                                // 播放关闭动画
-//                                scope.launch {
-//                                    dismissProgress.snapTo(0f)
-//                                    dismissProgress.animateTo(
-//                                        targetValue = 1f,
-//                                        animationSpec = tween(300, easing = FastOutSlowInEasing)
-//                                    )
-//                                    onClose()
-//                                }
-//                                scope.launch {
-//                                    dismissProgress.animateTo(
-//                                        targetValue = 1f,
-//                                        animationSpec = tween(
-//                                            durationMillis = 120, // 时间适当拉长
-//                                            easing = FastOutSlowInEasing
-//                                        )
-//                                    )
-//                                    onClose()
-//                                }
-//                                closeSnapshot = CloseAnimSnapshot(
-//                                    startRect = fullImageRect!!,
-//                                    endRect = thumbRect!!
-//                                )
-                                isClosing = true   // ⭐ 真正的动画开始
-
+                                isClosing = true
                                 scope.launch {
                                     animateFraction.snapTo(0f)
                                     animateFraction.animateTo(
                                         targetValue = 1f,
                                         animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
                                     )
-                                    // 动画完成后执行关闭
                                     onClose()
                                 }
-//                                    onClose()
-
                             } else {
                                 // 回弹
                                 if (scale == 1f) {
@@ -664,6 +583,7 @@ fun ImageDetailScreen(
             scale = scale * dragScale,
             offset = offset
         )
+
         val renderTransform =
             if (isClosing) {
 //                Log.d(
@@ -683,63 +603,6 @@ fun ImageDetailScreen(
             } else {
                 currentTransform
             }
-
-
-//        fullImageRect?.let { rect ->
-//            val density = LocalDensity.current
-//            val expandDp = 2.dp
-//
-//            Box(
-//                modifier = Modifier
-//                    .offset {
-//                        IntOffset(
-//                            (rect.left - with(density) { expandDp.toPx() }).roundToInt(),
-//                            (rect.top - with(density) { expandDp.toPx() }).roundToInt()
-//                        )
-//                    }
-//                    .size(
-//                        with(density) { (rect.width + 2 * expandDp.toPx()).toDp() },
-//                        with(density) { (rect.height + 2 * expandDp.toPx()).toDp() }
-//                    )
-//                    .border(expandDp, Color.Red)
-//            )
-//        }
-//
-//        thumbRect?.let { rect ->
-//            val density = LocalDensity.current
-//            val borderWidth = 2.dp
-//
-//            Box(
-//                modifier = Modifier
-//                    .offset {
-//                        IntOffset(
-//                            rect.left.roundToInt(),
-//                            rect.top.roundToInt()
-//                        )
-//                    }
-//                    .size(
-//                        with(density) { rect.width.toDp() },
-//                        with(density) { rect.height.toDp() }
-//                    )
-//                    .border(borderWidth, Color.Green) // 用绿色标识缩略图
-//            )
-//        }
-//        closeSnapshot?.let { snap ->
-//            Canvas(modifier = Modifier.fillMaxSize().zIndex(999f)) {
-//                drawCircle(
-//                    color = Color.Red,
-//                    radius = 8.dp.toPx(),
-//                    center = snap.startRect.center
-//                )
-//
-//                drawCircle(
-//                    color = Color.Blue,
-//                    radius = 8.dp.toPx(),
-//                    center = snap.endRect.center
-//                )
-//            }
-//        }
-
 
         if (isVideo) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -770,28 +633,12 @@ fun ImageDetailScreen(
                                 currentIndex = page
                                 onSelectedFileChange?.invoke(imagePaths[currentIndex])
                             }
-
-//                            dragYAddAble = true
-//                            isAnimateTriggered = false
-//                            isCloseTriggered = false
-//                            isDraggingDown = false
                         }
 
                 }
 
-
-//                val density = LocalDensity.current
-//                val offsetX = with(density) { animatedRect.left.toDp() }
-//                val offsetY = with(density) { animatedRect.top.toDp() }
-//                val width = with(density) { animatedRect.width.toDp() }
-//                val height = with(density) { animatedRect.height.toDp() }
-
-
                 Box(
                     modifier = Modifier.fillMaxSize(),
-//                    modifier = Modifier
-//                        .offset(x = offsetX, y = offsetY)
-//                        .size(width = width, height = height),
                     contentAlignment = Alignment.Center
                 ) {
                     val isGif = imagePath.lowercase().endsWith(".gif")
@@ -812,25 +659,21 @@ fun ImageDetailScreen(
                                 .diskCachePolicy(CachePolicy.ENABLED)
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .size(coil.size.Size.ORIGINAL)
-
-
                                 .apply {
                                     if (imagePath.lowercase().endsWith(".gif")) {
                                         decoderFactory(ImageDecoderDecoder.Factory())
                                     }
                                 }
                                 .build(),
-//                    imageLoader = imageLoader,
                             contentDescription = "大图",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
-//                                .onSizeChanged { if (imageSize == IntSize.Zero) imageSize = it }
                                 .graphicsLayer(
                                     scaleX = renderTransform.scale,
                                     scaleY = renderTransform.scale,
                                     translationX = renderTransform.offset.x,
                                     translationY = renderTransform.offset.y,
-                                    alpha = 1f - dismissProgress.value  // alpha 从 1 → 0
+                                    alpha = 1- imageAlpha
                                 )
                                 .drawWithContent {
                                     val imageDisplayRect = calculateImageDisplayRect()
@@ -842,7 +685,6 @@ fun ImageDetailScreen(
                                         val startClip = imageDisplayRect
 
                                         // 目标裁剪区域：正方形
-                                        // 选择正方形边长 = min(图片显示宽度, 图片显示高度)
                                         val squareSize = minOf(
                                             imageDisplayRect.width,
                                             imageDisplayRect.height
@@ -869,128 +711,8 @@ fun ImageDetailScreen(
                                         drawContent()
                                     }
                                 }
-//                                .composed {
-//                                    val animate = true
-//                                    val fraction = animateFraction.value
-//
-//                                    Modifier.drawWithContent {
-//                                        val contentW = size.width
-//                                        val contentH = size.height
-//
-//                                        // 1️⃣ 起始：完整显示（Fit）
-//                                        val startClip = Rect(
-//                                            0f,
-//                                            0f,
-//                                            contentW,
-//                                            contentH
-//                                        )
-//
-//                                        // 2️⃣ 目标：正方形裁剪（centerCrop）
-//                                        val endClip = centerCropRect(
-//                                            src = startClip,
-//                                            targetRatio = 1f
-//                                        )
-//                                        Log.d("animate", startClip.toString())
-//                                        Log.d("animate", endClip.toString())
-//
-//                                        if (animate) {
-//                                            val clip = lerpRect(startClip, endClip, fraction)
-//
-////                                            Log.d("animate", clip.toString())
-////                                            Log.d("isAnimateTriggered", isAnimateTriggered.toString())
-//                                            clipRect(
-//                                                left = clip.left,
-//                                                top = clip.top,
-//                                                right = clip.right,
-//                                                bottom = clip.bottom
-//                                            ) {
-//                                                this@drawWithContent.drawContent()
-//                                            }
-//                                        } else {
-//                                            drawContent()
-//                                        }
-//                                    }
-//                                }
-//                                .drawWithContent {
-//
-//                                    // ① 计算图片内容在当前 View 里的 Rect（Fit）
-//                                    val imageRect = calculateFitRect(
-//                                        imageSize = imageSize,
-//                                        screenWidth = size.width,
-//                                        screenHeight = size.height,
-//                                        scale = 1f,
-//                                        offset = Offset.Zero
-//                                    )
-//
-//                                    // ② 起始裁剪：图片内容本身
-//                                    val startClip = imageRect
-//
-//                                    // ③ 目标裁剪：正方形 centerCrop（基于图片内容）
-//                                    val endClip = centerCropRect(
-//                                        src = imageRect,
-//                                        targetRatio = 1f
-//                                    )
-//
-//                                    val clip = if (isAnimateTriggered) {
-//                                        lerpRect(startClip, endClip, animateFraction.value)
-//                                    } else null
-//
-//                                    Log.d("animate", clip.toString())
-//                                    Log.d("isAnimateTriggered", isAnimateTriggered.toString())
-//                                    if (clip != null) {
-//                                        clipRect(
-//                                            left = clip.left,
-//                                            top = clip.top,
-//                                            right = clip.right,
-//                                            bottom = clip.bottom
-//                                        ) {
-//                                            this@drawWithContent.drawContent()
-//                                        }
-//                                    } else {
-//                                        drawContent()
-//                                    }
-//                                }
-
-//                                .drawWithContent {
-//                                    val contentW = size.width
-//                                    val contentH = size.height
-//
-//                                    // 1️⃣ 起始：完整显示（Fit）
-//                                    val startClip = Rect(
-//                                        0f,
-//                                        0f,
-//                                        contentW,
-//                                        contentH
-//                                    )
-//
-//                                    // 2️⃣ 目标：正方形裁剪（centerCrop）
-//                                    val endClip = centerCropRect(
-//                                        src = startClip,
-//                                        targetRatio = 1f
-//                                    )
-//
-//                                    val clip = if (isAnimateTriggered) {
-//                                        lerpRect(startClip, endClip, animateFraction.value)
-//                                    } else null
-//
-//                                    if (clip != null) {
-//                                        clipRect(
-//                                            left = clip.left,
-//                                            top = clip.top,
-//                                            right = clip.right,
-//                                            bottom = clip.bottom
-//                                        ) {
-//                                            this@drawWithContent.drawContent()
-//                                        }
-//                                    } else {
-//                                        drawContent()
-//                                    }
-//                                }
-
                                 .fillMaxSize(),
                             loading = {
-//                                val thumbPath = thumbPaths.getOrNull(currentIndex)
-                                // ✅ 显示缩略图作为占位
                                 if (thumbPath != null) {
                                     SubcomposeAsyncImage(
                                         model = ImageRequest.Builder(context)
@@ -1007,7 +729,6 @@ fun ImageDetailScreen(
                                                 }
                                             )
                                             .build(),
-//                                imageLoader = imageLoader,
                                         contentDescription = "缩略图",
                                         contentScale = ContentScale.Fit,
                                         modifier = Modifier.fillMaxSize()

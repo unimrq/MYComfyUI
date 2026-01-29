@@ -84,7 +84,56 @@ fun EditImageSheet(
             .padding(start = 12.dp, end = 12.dp, bottom = 12.dp) // 去掉 top padding
     ) {
 
-        // ---- 顶部按钮 ----
+        // ---- 内容部分 ----
+        if (isInputMode) {
+            // 输入框形式
+            OutlinedTextField(
+                value = promptText,
+                onValueChange = { promptText = it },
+                label = { Text("请输入提示词") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .focusRequester(focusRequester),
+                maxLines = 5,
+                singleLine = false
+            )
+        } else {
+            // 标签列表 FlowRow
+            val displayItems = remember(items) {
+                items.filter { it.title.isNotBlank() }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 412.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(
+                        space = 6.dp,
+                        alignment = Alignment.CenterHorizontally
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    displayItems.forEach { item ->
+                        val selected = selectedItems.contains(item)
+
+                        TinyTag(
+                            text = item.title ?: "",
+                            selected = selected,
+                            onClick = {
+                                selectedItems =
+                                    if (selected) selectedItems - item else selectedItems + item
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth(),
@@ -152,56 +201,6 @@ fun EditImageSheet(
                 }
             ) {
                 Text("发送", color = Color(0xFF3965B0))
-            }
-        }
-
-        // ---- 内容部分 ----
-        if (isInputMode) {
-            // 输入框形式
-            OutlinedTextField(
-                value = promptText,
-                onValueChange = { promptText = it },
-                label = { Text("请输入提示词") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .focusRequester(focusRequester),
-                maxLines = 5,
-                singleLine = false
-            )
-        } else {
-            // 标签列表 FlowRow
-            val displayItems = remember(items) {
-                items.filter { it.title.isNotBlank() }
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 412.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(1.dp)
-            ) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(
-                        space = 6.dp,
-                        alignment = Alignment.CenterHorizontally
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    displayItems.forEach { item ->
-                        val selected = selectedItems.contains(item)
-
-                        TinyTag(
-                            text = item.title ?: "",
-                            selected = selected,
-                            onClick = {
-                                selectedItems =
-                                    if (selected) selectedItems - item else selectedItems + item
-                            }
-                        )
-                    }
-                }
             }
         }
     }
