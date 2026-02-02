@@ -81,7 +81,7 @@ fun EditImageSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp) // 去掉 top padding
+            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
     ) {
 
         // ---- 内容部分 ----
@@ -112,17 +112,19 @@ fun EditImageSheet(
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
                 FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(
                         space = 6.dp,
-                        alignment = Alignment.CenterHorizontally
+                        alignment = Alignment.Start
                     ),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
+
                 ) {
                     displayItems.forEach { item ->
                         val selected = selectedItems.contains(item)
 
                         TinyTag(
-                            text = item.title ?: "",
+                            text = item.title,
                             selected = selected,
                             onClick = {
                                 selectedItems =
@@ -182,7 +184,7 @@ fun EditImageSheet(
                                             type = "修图",
                                             imageUrl = url,
                                             thumbnailUrl = thumbnailUrls.getOrNull(index) ?: "",
-                                            args = mapOf("text" to (prompt.text ?: ""))
+                                            args = mapOf("text" to prompt.text)
                                         )
                                     } catch (e: Exception) {
                                         e.printStackTrace()

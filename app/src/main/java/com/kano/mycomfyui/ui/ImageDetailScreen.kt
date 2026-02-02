@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.fontscaling.MathUtils.lerp
 import androidx.compose.ui.zIndex
 import androidx.media3.common.util.Log
+import com.kano.mycomfyui.data.FileInfo
 import kotlinx.coroutines.delay
 import kotlin.math.pow
 
@@ -153,20 +154,17 @@ fun CachedVideoPlayer(
 @SuppressLint("UnrememberedMutableState", "ConfigurationScreenWidthHeight",
     "UnnecessaryComposedModifier"
 )
+
 @Composable
 fun ImageDetailScreen(
-    imagePaths: MutableList<String>,
-    filePaths: MutableList<String>,
-    thumbPaths: MutableList<String>,
+    sortedFiles: List<FileInfo>,
     initialIndex: Int = 0,
-    onClose: () -> Unit,
     onImageClick: () -> Unit,
-    onGenerateClick: ((String) -> Unit)? = null,
     onSelectedFileChange: ((String) -> Unit)? = null,
-    visibleCoordsMap: SnapshotStateMap<String, LayoutCoordinates> ,  // ✅ 新增
-
+    visibleCoordsMap: SnapshotStateMap<String, LayoutCoordinates>,  // ✅ 新增
+    onRequestClose: () -> Unit,
+    onCloseAnimationEnd: () -> Unit   // 动画结束
 ) {
-
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -177,22 +175,22 @@ fun ImageDetailScreen(
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
-    if (imagePaths.isEmpty()) return
-    // 创建安全的获取函数
-    fun getSafeImagePath(imagePaths: List<String>, index: Int): String? {
-        return if (index in imagePaths.indices) {
-            imagePaths[index]
-        } else if (imagePaths.isNotEmpty()) {
-            // 如果越界，返回最后一个
-            imagePaths.last()
-        } else {
-            null
+    if (sortedFiles.isEmpty()) return
+
+    fun getSafeFile(
+        files: List<FileInfo>,
+        index: Int
+    ): FileInfo? {
+        return when {
+            index in files.indices -> files[index]
+            files.isNotEmpty() -> files.last() // 或 first，看你 UX
+            else -> null
         }
     }
 
-// 使用
-    val imagePath = getSafeImagePath(imagePaths, currentIndex) ?: return
-    val isVideo = imagePath.lowercase().endsWith(".mp4")
+    val currentFile = getSafeFile(sortedFiles, currentIndex) ?: return
+
+    val isVideo = currentFile.path.lowercase().endsWith(".mp4")
 
     // 缩放和平移
     var scale by remember { mutableStateOf(1f) }
@@ -215,7 +213,7 @@ fun ImageDetailScreen(
 
     // 阈值
     val animateThreshold = screenHeightPx * 0.5f
-    val closeThreshold = screenHeightPx * 0.03f
+    val closeThreshold = screenHeightPx * 0.05f
     var isClosing by remember { mutableStateOf(false) }
 
     var isAnimateTriggered by remember { mutableStateOf(false) }
@@ -225,7 +223,7 @@ fun ImageDetailScreen(
             val dragProgress = (dragY / animateThreshold).coerceIn(0f, 1f)
             androidx.compose.ui.util.lerp(start = 1f, stop = 0.3f, fraction = dragProgress)
         } else {
-            0.3f
+            0.5f
         }
     }
 
@@ -233,7 +231,7 @@ fun ImageDetailScreen(
         if (!isAnimateTriggered) {
             val dragProgress = (dragY / animateThreshold).coerceIn(0f, 1f)
             // 非线性快速衰减
-            1f - dragProgress.pow(0.2f)
+            1f - dragProgress.pow(1f)
         } else {
             0f
         }
@@ -275,11 +273,15 @@ fun ImageDetailScreen(
             }
         }
     }
-    var imageAlpha by remember { mutableStateOf(0f) }
 
     val animateFraction = remember { Animatable(0f) }
-    val safeIndex = if (currentIndex >= filePaths.size) currentIndex - 1 else currentIndex
-    val coords = visibleCoordsMap[filePaths.getOrNull(safeIndex)]
+    val coords = currentFile
+        .path
+        .let { key ->
+            visibleCoordsMap[key]
+        }
+
+//    Log.d("ImageDetailCoords", visibleCoordsMap.toString())
 
 
     val thumbRect = coords?.let {
@@ -301,13 +303,10 @@ fun ImageDetailScreen(
         val offset: Offset
     )
 
-
-
     data class CloseAnimSnapshot(
         val startRect: Rect,
         val endRect: Rect
     )
-
 
 
     var closeSnapshot by remember { mutableStateOf<CloseAnimSnapshot?>(null) }
@@ -427,15 +426,7 @@ fun ImageDetailScreen(
         if (full != null && thumb != null &&
             startClipRect != null && targetClipRect != null
         ) {
-//            if (closeSnapshot == null) {
-//                closeSnapshot = CloseAnimSnapshot(
-//                    startRect = full,
-//                    endRect = thumb,
-//                )
-//            }
-
             isAnimateTriggered = true
-
         }
 
     }
@@ -449,341 +440,336 @@ fun ImageDetailScreen(
             lerp(a.bottom, b.bottom, t)
         )
 
-//    val animatedClipRect =
-//        closeSnapshot?.let {
-//            lerpRect(it.startClip, it.endClip, animateFraction.value)
-//        }
-
-
-
+    val maskColor = if (isTopBarVisible) Color.White else Color.Black
+    val alpha1 = backgroundAlpha * (1f - animateFraction.value)
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(if(isTopBarVisible) Color.White.copy(alpha = backgroundAlpha * (1 - animateFraction.value)) else Color.Black.copy(alpha = backgroundAlpha * (1 - animateFraction.value)))
-            .onSizeChanged { containerSize = it }
-            .zIndex(if(isTopBarVisible) 0f else 12f)
-            .pointerInput(currentIndex) {
-                detectTransformGestures { centroid, pan, zoom, _ ->
-                    val newScale = (scale * zoom).coerceIn(minScale, maxScale)
+        Modifier.fillMaxSize()
+    ) {
+        // 背景遮罩
+        Box(
+            Modifier
+                .matchParentSize()
+                .zIndex(if (isTopBarVisible) 0f else 12f)
+                .graphicsLayer { alpha = alpha1 }
+                .background(maskColor)
+        )
 
-                    if (!isAnimateTriggered) {
-                        scale = newScale
-                        if (scale > 1f) {
-                            // 放大状态 → 平移图片
-                            offset += pan
-                        } else if (zoom == 1f && scale == 1f) {
+        // 原有内容（不受影响）
+        Box(
 
-                            // 原始比例下
-                            if (pan.y > 0) {
-                                // 下拉
-                                isDraggingDown = true
-                                if (dragYAddAble){
-                                    dragY += pan.y
-                                }
-                                offset += pan / newScale
-                                if (dragY > animateThreshold && closeSnapshot == null) {
-                                    triggerClose()
-//                                    isAnimateTriggered = true
-                                }
-                                if (dragY > closeThreshold) {
-                                    isCloseTriggered = true
-                                }
-//                                if (dragY > closeThreshold) {
-//
-//
-//                                }
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { containerSize = it }
+                .zIndex(if(isTopBarVisible) 0f else 12f)
+                .pointerInput(currentIndex) {
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        val newScale = (scale * zoom).coerceIn(minScale, maxScale)
 
-                            } else if (pan.y < 0){
-                                if(isCloseTriggered){
-                                    isAnimateTriggered = false
+                        if (!isAnimateTriggered) {
+                            scale = newScale
+                            if (scale > 1f) {
+                                // 放大状态 → 平移图片
+                                offset += pan
+                            } else if (zoom == 1f && scale == 1f) {
+
+                                // 原始比例下
+                                if (pan.y > 0) {
+                                    // 下拉
+                                    isDraggingDown = true
+                                    if (dragYAddAble){
+                                        dragY += pan.y
+                                    }
                                     offset += pan / newScale
-                                    dragYAddAble = false
-                                } else {
-                                    offset += pan / newScale
-                                    scope.launch {
-                                        offsetAnim.snapTo(offset)
-                                        offsetAnim.animateTo(Offset.Zero, animationSpec = tween(200, easing = FastOutSlowInEasing)) {
-                                            offset = value
+                                    if (dragY > animateThreshold && closeSnapshot == null) {
+                                        triggerClose()
+                                    }
+                                    if (dragY > closeThreshold) {
+                                        isCloseTriggered = true
+                                    }
+
+                                } else if (pan.y < 0){
+                                    if(isCloseTriggered){
+                                        isAnimateTriggered = false
+                                        offset += pan / newScale
+                                        dragYAddAble = false
+                                    } else {
+                                        offset += pan / newScale
+                                        scope.launch {
+                                            offsetAnim.snapTo(offset)
+                                            offsetAnim.animateTo(Offset.Zero, animationSpec = tween(200, easing = FastOutSlowInEasing)) {
+                                                offset = value
+                                            }
                                         }
                                     }
                                 }
                             }
-//                            else if (!isDraggingDown) {
-//                                // 左右滑切图
-//                                dragAccumulation += pan
-//                                if (abs(dragAccumulation.x) > 120f) {
-//                                    if (dragAccumulation.x > 0 && currentIndex > 0) currentIndex--
-//                                    else if (dragAccumulation.x < 0 && currentIndex < imagePaths.lastIndex) currentIndex++
-//                                    dragAccumulation = Offset.Zero
-////                                    onSelectedFileChange?.invoke(imagePaths[currentIndex])
-//                                }
-//                            }
-                        }
-                    } else {
-                        offset += pan / newScale
+                        } else {
+                            offset += pan / newScale
 //                        dragY += pan.y
+                        }
                     }
                 }
-            }
-            .pointerInput(Unit) {
-                // ✅ 双击放大/还原
-                detectTapGestures(
-                    onTap = {
+                .pointerInput(Unit) {
+                    // ✅ 双击放大/还原
+                    detectTapGestures(
+                        onTap = {
 //                        if(!isVideo){
 //                            onGenerateClick?.invoke(imagePaths[currentIndex])
 //                        }
-                        if(!isVideo){
-                            onImageClick()
-                        }
-                        isTopBarVisible = !isTopBarVisible
-                    },
-                    onDoubleTap = {
-                        if (scale > 1f) {
-                            scale = 1f
-                            offset = Offset.Zero
-                        } else {
-                            scale = doubleTapScale
-                        }
-                    }
-                )
-            }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.changes.all { !it.pressed }) {
-                            if (isCloseTriggered) {
-                                isClosing = true
-                                scope.launch {
-                                    animateFraction.snapTo(0f)
-                                    animateFraction.animateTo(
-                                        targetValue = 1f,
-                                        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
-                                    )
-                                    onClose()
-                                }
+                            if(!isVideo){
+                                onImageClick()
+                            }
+                            isTopBarVisible = !isTopBarVisible
+                        },
+                        onDoubleTap = {
+                            if (scale > 1f) {
+                                scale = 1f
+                                offset = Offset.Zero
                             } else {
-                                // 回弹
-                                if (scale == 1f) {
-                                    dragY = 0f
-                                    offset = Offset.Zero
-                                    isDraggingDown = false
-                                }
+                                scale = doubleTapScale
                             }
-                            isAnimateTriggered = false
+                        }
+                    )
+                }
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.changes.all { !it.pressed }) {
+                                if (isCloseTriggered && !isClosing) {
+                                    isClosing = true
+                                    onRequestClose()
+
+                                    scope.launch {
+                                        animateFraction.snapTo(0f)
+
+                                        animateFraction.animateTo(
+                                            targetValue = 1f,
+                                            animationSpec = tween(
+                                                durationMillis = 360,
+                                                easing = FastOutSlowInEasing
+                                            )
+                                        )
+
+                                        // ⭐ 动画真正结束的回调
+                                        onCloseAnimationEnd()
+                                    }
+                                }
+                                else {
+                                    // 回弹
+                                    if (scale == 1f) {
+                                        dragY = 0f
+                                        offset = Offset.Zero
+                                        isDraggingDown = false
+                                    }
+                                }
+                                isAnimateTriggered = false
+                            }
                         }
                     }
                 }
-            }
 
 
-    ) {
-        val currentTransform = Transform(
-            scale = scale * dragScale,
-            offset = offset
-        )
+        ) {
+            val currentTransform = Transform(
+                scale = scale * dragScale,
+                offset = offset
+            )
 
-        val renderTransform =
-            if (isClosing) {
-//                Log.d(
-//                    "Transform",
-//                    "current = scale=${currentTransform.scale}, offset=${currentTransform.offset}"
-//                )
-//                Log.d(
-//                    "Transform",
-//                    "target  = scale=${targetTransform.scale}, offset=${targetTransform.offset}"
-//                )
-//                Log.d(
-//                    "Transform",
-//                    "fraction=${animateFraction.value}"
-//                )
-
-                lerpTransform(currentTransform, targetTransform, animateFraction.value)
-            } else {
-                currentTransform
-            }
-
-        if (isVideo) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                CachedVideoPlayer(
-                    imagePath,
-                    secretKey = ServerConfig.secret,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-        else {
-            val pagerState = rememberPagerState(initialPage = currentIndex, pageCount = { imagePaths.size })
-            val userScrollEnabled = scale == 1f
-
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                pageSpacing = 8.dp,
-                userScrollEnabled = userScrollEnabled
-            ) { page ->
-                val imagePath = imagePaths[page]
-                val thumbPath = thumbPaths.getOrNull(page)
-
-                LaunchedEffect(pagerState) {
-                    snapshotFlow { pagerState.currentPage }
-                        .collect { page ->
-                            if (page != currentIndex) {
-                                currentIndex = page
-                                onSelectedFileChange?.invoke(imagePaths[currentIndex])
-                            }
-                        }
-
+            val renderTransform =
+                if (isClosing) {
+                    lerpTransform(currentTransform, targetTransform, animateFraction.value)
+                } else {
+                    currentTransform
                 }
 
-                Box(
+            if (isVideo) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    CachedVideoPlayer(
+                        currentFile.net_url.toString(),
+                        secretKey = ServerConfig.secret,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            else {
+                val pagerState = rememberPagerState(initialPage = currentIndex, pageCount = { sortedFiles.size })
+                val userScrollEnabled = scale == 1f
+
+                HorizontalPager(
+                    state = pagerState,
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val isGif = imagePath.lowercase().endsWith(".gif")
-                    if (isGif){
-                        ImageRequest.Builder(context)
-                            .data(imagePath)
-                            .size(Size.ORIGINAL)
-                            .apply {
-                                decoderFactory(ImageDecoderDecoder.Factory())
+                    pageSpacing = 8.dp,
+                    userScrollEnabled = userScrollEnabled
+                ) { page ->
+                    val currentFile = sortedFiles.getOrNull(page)
+
+                    val imagePath = currentFile?.net_url
+                    val thumbPath = currentFile?.thumb_url
+
+
+                    LaunchedEffect(pagerState) {
+                        snapshotFlow { pagerState.currentPage }
+                            .collect { page ->
+                                if (page != currentIndex) {
+                                    currentIndex = page
+                                    val file = sortedFiles.getOrNull(currentIndex)
+                                    file?.net_url?.let { onSelectedFileChange?.invoke(it) }
+
+                                }
                             }
-                            .build()
 
-                    } else {
+                    }
 
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val isGif = imagePath?.endsWith(".gif")
+                        if (isGif == true){
+                            ImageRequest.Builder(context)
                                 .data(imagePath)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .size(coil.size.Size.ORIGINAL)
+                                .size(Size.ORIGINAL)
                                 .apply {
-                                    if (imagePath.lowercase().endsWith(".gif")) {
-                                        decoderFactory(ImageDecoderDecoder.Factory())
-                                    }
+                                    decoderFactory(ImageDecoderDecoder.Factory())
                                 }
-                                .build(),
-                            contentDescription = "大图",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .graphicsLayer(
-                                    scaleX = renderTransform.scale,
-                                    scaleY = renderTransform.scale,
-                                    translationX = renderTransform.offset.x,
-                                    translationY = renderTransform.offset.y,
-                                    alpha = 1- imageAlpha
-                                )
-                                .drawWithContent {
-                                    val imageDisplayRect = calculateImageDisplayRect()
+                                .build()
 
-                                    if (isClosing && imageDisplayRect != null) {
-                                        val fraction = animateFraction.value
+                        } else {
 
-                                        // 起始裁剪区域：图片实际显示区域
-                                        val startClip = imageDisplayRect
-
-                                        // 目标裁剪区域：正方形
-                                        val squareSize = minOf(
-                                            imageDisplayRect.width,
-                                            imageDisplayRect.height
-                                        )
-
-                                        val endClip = Rect(
-                                            left = imageDisplayRect.center.x - squareSize / 2f,
-                                            top = imageDisplayRect.center.y - squareSize / 2f,
-                                            right = imageDisplayRect.center.x + squareSize / 2f,
-                                            bottom = imageDisplayRect.center.y + squareSize / 2f
-                                        )
-
-                                        val currentClip = lerpRect(startClip, endClip, fraction)
-
-                                        clipRect(
-                                            left = currentClip.left,
-                                            top = currentClip.top,
-                                            right = currentClip.right,
-                                            bottom = currentClip.bottom
-                                        ) {
-                                            this@drawWithContent.drawContent()
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(imagePath)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .size(coil.size.Size.ORIGINAL)
+                                    .apply {
+                                        if (imagePath?.endsWith(".gif") == true) {
+                                            decoderFactory(ImageDecoderDecoder.Factory())
                                         }
-                                    } else {
-                                        drawContent()
                                     }
-                                }
-                                .fillMaxSize(),
-                            loading = {
-                                if (thumbPath != null) {
-                                    SubcomposeAsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(thumbPath)
-                                            .diskCachePolicy(CachePolicy.ENABLED)
-                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .size(Size.ORIGINAL)
-                                            .listener(
-                                                onSuccess = { _, result ->
-                                                    imageSize = IntSize(
-                                                        result.drawable.intrinsicWidth,
-                                                        result.drawable.intrinsicHeight
-                                                    )
-                                                }
-                                            )
-                                            .build(),
-                                        contentDescription = "缩略图",
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
+                                    .build(),
+                                contentDescription = "大图",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .graphicsLayer(
+                                        scaleX = renderTransform.scale,
+                                        scaleY = renderTransform.scale,
+                                        translationX = renderTransform.offset.x,
+                                        translationY = renderTransform.offset.y,
                                     )
-                                } else {
-                                    // 缩略图不存在时显示加载指示器
+                                    .drawWithContent {
+                                        val imageDisplayRect = calculateImageDisplayRect()
+
+                                        if (isClosing && imageDisplayRect != null) {
+                                            val fraction = animateFraction.value
+
+                                            // 起始裁剪区域：图片实际显示区域
+                                            val startClip = imageDisplayRect
+
+                                            // 目标裁剪区域：正方形
+                                            val squareSize = minOf(
+                                                imageDisplayRect.width,
+                                                imageDisplayRect.height
+                                            )
+
+                                            val endClip = Rect(
+                                                left = imageDisplayRect.center.x - squareSize / 2f,
+                                                top = imageDisplayRect.center.y - squareSize / 2f,
+                                                right = imageDisplayRect.center.x + squareSize / 2f,
+                                                bottom = imageDisplayRect.center.y + squareSize / 2f
+                                            )
+
+                                            val currentClip = lerpRect(startClip, endClip, fraction)
+
+                                            clipRect(
+                                                left = currentClip.left,
+                                                top = currentClip.top,
+                                                right = currentClip.right,
+                                                bottom = currentClip.bottom
+                                            ) {
+                                                this@drawWithContent.drawContent()
+                                            }
+                                        } else {
+                                            drawContent()
+                                        }
+                                    }
+                                    .fillMaxSize(),
+                                loading = {
+                                    if (thumbPath != null) {
+                                        SubcomposeAsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(thumbPath)
+                                                .diskCachePolicy(CachePolicy.ENABLED)
+                                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                                .size(Size.ORIGINAL)
+                                                .listener(
+                                                    onSuccess = { _, result ->
+                                                        imageSize = IntSize(
+                                                            result.drawable.intrinsicWidth,
+                                                            result.drawable.intrinsicHeight
+                                                        )
+                                                    }
+                                                )
+                                                .build(),
+                                            contentDescription = "缩略图",
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        // 缩略图不存在时显示加载指示器
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(color = Color.White)
+                                        }
+                                    }
+                                },
+                                error = {
                                     Box(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        CircularProgressIndicator(color = Color.White)
+                                        Text("加载失败", color = Color.Red)
+                                    }
+                                },
+                                success = {
+                                    SubcomposeAsyncImageContent()
+
+                                    // ⭐ 兜底一次 imageSize
+                                    val painter = painter
+                                    val drawable = painter.intrinsicSize
+                                    if (
+                                        imageSize == IntSize.Zero && drawable.width > 0f && drawable.height > 0f
+                                    ) {
+                                        imageSize = IntSize(
+                                            drawable.width.toInt(),
+                                            drawable.height.toInt()
+                                        )
                                     }
                                 }
-                            },
-                            error = {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("加载失败", color = Color.Red)
-                                }
-                            },
-                            success = {
-                                SubcomposeAsyncImageContent()
 
-                                // ⭐ 兜底一次 imageSize
-                                val painter = painter
-                                val drawable = painter.intrinsicSize
-                                if (
-                                    imageSize == IntSize.Zero && drawable.width > 0f && drawable.height > 0f
-                                ) {
-                                    imageSize = IntSize(
-                                        drawable.width.toInt(),
-                                        drawable.height.toInt()
-                                    )
-                                }
-                            }
-
-                        )
+                            )
+                        }
                     }
                 }
-            }
-            // ✅ 页码固定在屏幕底部中央
-            if(!isTopBarVisible){
-                Text(
-                    text = "${pagerState.currentPage + 1} / ${imagePaths.size}",
-                    fontSize = 18.sp,
-                    color = Color.White.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                )
-            }
+                // ✅ 页码固定在屏幕底部中央
+                if(!isTopBarVisible){
+                    Text(
+                        text = "${pagerState.currentPage + 1} / ${sortedFiles.size}",
+                        fontSize = 18.sp,
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 24.dp)
+                    )
+                }
 
+            }
         }
     }
+
 }

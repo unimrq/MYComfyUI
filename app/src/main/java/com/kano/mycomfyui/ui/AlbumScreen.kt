@@ -12,6 +12,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -46,6 +49,8 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -76,7 +81,10 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -88,9 +96,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -115,6 +125,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import coil.ImageLoader
 import coil.compose.AsyncImage
@@ -147,6 +158,7 @@ import java.io.InputStream
 import java.text.Collator
 import java.text.SimpleDateFormat
 import java.util.Locale
+import kotlin.collections.containsKey
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -158,22 +170,23 @@ fun AlbumScreen(
     navController: NavHostController,
     onLockClick: () -> Unit,
 ) {
+
+    /**
+     * 变量区
+     */
+
     val scope = rememberCoroutineScope()
-    var folderContent by remember { mutableStateOf<FolderContent?>(null) }
+
     val context = LocalContext.current
     var selectedFileForMenu by remember { mutableStateOf<FileInfo?>(null) }
     var confirmDeleteDialogVisible by remember { mutableStateOf(false) }
     var pendingDeleteFile by remember { mutableStateOf<FileInfo?>(null) }
     var showGenerateSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var previewImagePath by remember { mutableStateOf<String?>(null) }
     val gson = Gson()
     val prefs: SharedPreferences = context.getSharedPreferences("album_cache", Context.MODE_PRIVATE)
     val prefs1: SharedPreferences = context.getSharedPreferences("path_cache", Context.MODE_PRIVATE)
     var multiSelectMode by remember { mutableStateOf(false) }
-    val selectedImages = remember { mutableStateListOf<String>() }
-    val selectedImagesPath = remember { mutableStateListOf<String>() }
-
 
     var currentTab by rememberSaveable { mutableStateOf("素材") }
     var generateImageUrls by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -188,14 +201,10 @@ fun AlbumScreen(
     val scrollPositions = remember {
         mutableStateMapOf<String, Pair<Int, Int>>()
     }
-    val currentImageIndex = remember { mutableStateOf(0) }
     var progressVisible by remember { mutableStateOf(false) }
     var currentFileName by remember { mutableStateOf("") }
-    var currentIndex by remember { mutableStateOf(0) }
     var totalCount by remember { mutableStateOf(0) }
-    val imageList = remember { mutableStateListOf<String>() }
-    val thumbList = remember { mutableStateListOf<String>() }
-    val fileList = remember { mutableStateListOf<String>() }
+
 
     // 剪切板：存放待移动的文件
     var cutList by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -206,22 +215,61 @@ fun AlbumScreen(
     val text2imgEnabled = loadText2ImgEnabled(context)
     var showTextInputDialog by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
-    var isImageListReady by remember { mutableStateOf(false) }
     var isTopBarVisible by remember { mutableStateOf(true) }
 
-    val pathOptions = if (text2imgEnabled) {
-        listOf(
-            "修图" to "修图",
-            "素材" to "素材",
-            "动图" to "动图",
-            "生图" to "生图"
-        )
-    } else {
-        listOf(
-            "修图" to "修图",
-            "素材" to "素材",
-            "动图" to "动图"
-        )
+    var overlayVisible by remember { mutableStateOf(true) }
+
+    val bottomBarAlpha by animateFloatAsState(
+        targetValue = if (overlayVisible) 0f else 1f,
+        animationSpec = tween(360, easing = FastOutSlowInEasing),
+        label = "BottomBarAlpha"
+    )
+
+    val bringIntoViewRequesters =
+        remember { mutableStateMapOf<String, BringIntoViewRequester>() }
+
+    val pathOptions = buildList {
+        add("修图" to "修图")
+        add("素材" to "素材")
+
+        if (videoEnabled) {
+            add("动图" to "动图")
+        }
+
+        if (text2imgEnabled) {
+            add("生图" to "生图")
+        }
+    }
+
+    val hideStates = remember { mutableStateMapOf<String, Boolean>() }
+    var imageClosing by remember { mutableStateOf(true) }
+
+
+    val viewModel: FolderViewModel = viewModel()
+    val uiState by viewModel.uiState.collectAsState() // ViewModel状态
+    val folderContent = uiState.folderContent
+
+    var useDarkTopBar by remember { mutableStateOf(false) }
+    val topBarColor = if (useDarkTopBar) Color.White else Color.Black
+    var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
+    val visibleCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() } // 可见图片位置
+
+    /**
+     * 函数区
+     */
+    fun sendTextToGenerate(text: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                RetrofitClient.getApi().generateImage(
+                    type = "生图",
+                    imageUrl = "",
+                    thumbnailUrl = "",
+                    args = mapOf("text" to text)
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun saveFolderCache(path: String, content: FolderContent) {
@@ -241,8 +289,39 @@ fun AlbumScreen(
         return prefs1.getString(key, defaultPath) ?: defaultPath
     }
 
-    var currentPath by rememberSaveable {
-        mutableStateOf(getSavedPath(currentTab, pathOptions.find { it.first == currentTab }!!.second))
+    // 拉取 API
+    suspend fun refreshFolder(requestedPath: String) {
+        savePath(currentTab, requestedPath)
+
+        // 1️⃣ 本地缓存
+        getFolderCache(requestedPath)?.let { cached ->
+            viewModel.updateFolderContent(
+                content = cached,
+                currentPath = requestedPath,
+                mode = FolderViewModel.ContentUpdateMode.REFRESH
+            )
+        }
+
+        try {
+            val serverContent =
+                RetrofitClient.getApi().browse(requestedPath)
+
+            // 2️⃣ 只有路径没变才更新
+            if (requestedPath == viewModel.uiState.value.currentPath) {
+                viewModel.updateFolderContent(
+                    content = serverContent,
+                    currentPath = requestedPath,
+                    mode = FolderViewModel.ContentUpdateMode.REFRESH
+                )
+
+                saveFolderCache(requestedPath, serverContent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            if (requestedPath == viewModel.uiState.value.currentPath) {
+                Toast.makeText(context, "刷新失败", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
 
@@ -258,7 +337,7 @@ fun AlbumScreen(
             // 构造 Multipart
             val requestFile = file.asRequestBody("image/*".toMediaType())
             val body = MultipartBody.Part.createFormData("file", file.name, requestFile)
-            val pathBody = currentPath.toRequestBody("text/plain".toMediaType())
+            val pathBody = uiState.currentPath.toRequestBody("text/plain".toMediaType())
 
             // 发起上传请求并解析响应
             val response = RetrofitClient.getApi().uploadImage(pathBody, body)
@@ -313,189 +392,230 @@ fun AlbumScreen(
         }
     }
 
-    // 拉取 API
-    suspend fun refreshFolder() {
-        val requestedPath = currentPath
+    suspend fun uploadImagesAndRefresh(
+        uris: List<Uri>
+    ) {
+        if (uris.isEmpty()) return
 
-        // 1️⃣ 尝试读取本地缓存
-        getFolderCache(requestedPath)?.let { cached ->
-            folderContent = cached
-        }
-        savePath(currentTab, requestedPath)
+        totalCount = uris.size
+        progressVisible = true
 
         try {
-            // 2️⃣ 异步刷新服务器
-//            RetrofitClient.apiService.refresh(requestedPath)
-            val serverContent = RetrofitClient.getApi().browse(requestedPath)
+            uris.asReversed().forEach { uri ->
+                currentFileName =
+                    uri.lastPathSegment ?: "image"
 
-            // 3️⃣ 路径一致时才更新
-            if (requestedPath == currentPath) {
-                val oldJson = gson.toJson(folderContent)
-                val newJson = gson.toJson(serverContent)
-                if (oldJson != newJson) {
-                    folderContent = serverContent
-                    saveFolderCache(requestedPath, serverContent)
-                }
+                uploadImageFromUri(uri)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
-            if (requestedPath == currentPath) {
-                Toast.makeText(context, "刷新失败", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    val imagePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris: List<Uri> ->
-        if (uris.isNotEmpty()) {
+            Toast.makeText(
+                context,
+                "上传失败: ${e.message}",
+                Toast.LENGTH_SHORT
+            ).show()
+        } finally {
+            progressVisible = false
             scope.launch {
-                // 倒序上传
-                totalCount = uris.size
-                progressVisible = true
-                uris.asReversed().forEachIndexed { index, uri ->
-                    currentIndex = index + 1
-                    currentFileName = uri.lastPathSegment ?: "image_${index + 1}"
+                refreshFolder(uiState.currentPath)
+            }
 
-                    try {
-                        uploadImageFromUri(uri)
-                    } catch (e: Exception) {
-                        Toast.makeText(context, "上传失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                progressVisible = false
-                refreshFolder()
+        }
+    }
+
+    fun resolveTabPath(
+        tabKey: String,
+        defaultPath: String
+    ): String {
+        val savedPath = prefs1.getString(tabKey, null)
+
+        return when {
+            savedPath.isNullOrBlank() -> defaultPath
+            !savedPath.startsWith(defaultPath) -> defaultPath
+            else -> savedPath
+        }
+    }
+
+
+    suspend fun switchTab(
+        newTab: String,
+        defaultPath: String,
+        uiState: ImageViewerState
+    ) {
+        // 1️⃣ 保存旧 Tab 的路径
+        savePath(currentTab, uiState.currentPath)
+
+        // 2️⃣ 更新当前 Tab
+        currentTab = newTab
+
+        // 3️⃣ 解析目标路径（唯一规则）
+        val targetPath = resolveTabPath(newTab, defaultPath)
+
+        // 4️⃣ 记忆目录滚动
+        rememberDirectory(uiState.currentPath, targetPath)
+
+        // 5️⃣ 更新路径
+        viewModel.updateCurrentPath(targetPath)
+
+        // 6️⃣ 刷新
+        refreshFolder(targetPath)
+    }
+
+
+    /**
+     * 变量区
+     */
+    val imagePickerLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.GetMultipleContents()
+        ) { uris ->
+
+            if (uris.isEmpty()) return@rememberLauncherForActivityResult
+
+            scope.launch {
+                uploadImagesAndRefresh(uris)
+            }
+        }
+
+    /**
+     * 副作用区
+     */
+    DisposableEffect(multiSelectMode) {
+        onDispose {
+            if (!multiSelectMode) {
+                viewModel.clearSelection() //取消多选模式清空选中图片
             }
         }
     }
-
-    LaunchedEffect(multiSelectMode) {
-        if (!multiSelectMode) {
-            selectedImages.clear()
-        }
-    }
-
-    fun sendTextToGenerate(text: String) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                RetrofitClient.getApi().generateImage(
-                    type = "生图",
-                    imageUrl = "",
-                    thumbnailUrl = "",
-                    args = mapOf("text" to text)
-                )
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    var useDarkTopBar by remember { mutableStateOf(false) }
-    val topBarColor = if (useDarkTopBar) Color.White else Color.Black
-    var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
-    val visibleCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
 
     // 监测生命周期，在程序结束前保存目录状态
-    LaunchedEffect(Unit) {
-        refreshFolder()
-        ProcessLifecycleOwner.get().lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP || event == Lifecycle.Event.ON_DESTROY) {
-                rememberDirectory(currentPath, currentPath)
+    DisposableEffect(Unit) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (
+                event == Lifecycle.Event.ON_PAUSE ||
+                event == Lifecycle.Event.ON_STOP ||
+                event == Lifecycle.Event.ON_DESTROY
+            ) {
+                val path = viewModel.uiState.value.currentPath
+                if (path.isNotBlank()) {
+                    rememberDirectory(path, path)
+                }
             }
-        })
-    }
+        }
 
-    LaunchedEffect(folderContent?.files, folderContent?.folders) {
-        val pos = scrollPositions[currentPath]
-        if (pos != null) {
-            gridState.scrollToItem(pos.first, pos.second)
+        ProcessLifecycleOwner.get().lifecycle.addObserver(observer)
+
+        onDispose {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(observer)
         }
     }
 
-    LaunchedEffect(currentPath) {
-        folderContent?.let {
-                when {
-                    currentPath.isBlank() || currentPath == "." -> "根目录"
-                else -> {
-                    currentPath.split('/')
-                        .filter { it.isNotBlank() }
-                        .takeLast(2)  // 取最后两级
-                        .joinToString("/")
-                        .let { if (it.length > 12) it.take(12) + "…" else it }
-                }
-            }
+    LaunchedEffect(currentTab) {
+        val initialPath = getSavedPath(
+            currentTab,
+            pathOptions.first { it.first == currentTab }.second
+        )
+
+        viewModel.setCurrentPath(initialPath) // 初始化目录
+        scope.launch {
+            refreshFolder(uiState.currentPath)
+        }
+
+    }
+
+    LaunchedEffect(uiState.currentPath, uiState.sortedFiles.size) {
+        val pos = scrollPositions[uiState.currentPath]
+        if (pos != null) {
+            gridState.scrollToItem(pos.first, pos.second) // 恢复记忆位置
         }
     }
 
     BackHandler(enabled = true) {
         when {
-            // 1️⃣ 多选模式 -> 退出多选
             multiSelectMode -> {
+                viewModel.clearSelection()
                 multiSelectMode = false
-                selectedImages.clear()
             }
 
-            // 2️⃣ 大图预览 -> 关闭预览
-            previewImagePath != null -> previewImagePath = null
+            // 1️⃣ 清选择
+            uiState.selectedPaths.isNotEmpty() -> {
+                viewModel.clearSelection()
+            }
 
-            // 3️⃣ 有父目录 -> 返回上一级
+            // 2️⃣ 关闭预览
+            uiState.previewPath != null -> {
+                viewModel.closePreview()
+            }
+
+            // 3️⃣ 返回父目录
             currentTab != "最新" &&
-                    currentPath !in listOf("素材", "动图", "修图", "生图") &&
-                    folderContent?.parent != null -> {
-                folderContent?.parent?.let { parent ->
-                    rememberDirectory(currentPath, parent.path)
-                    currentPath = parent.path
-                    scope.launch { refreshFolder() }
+                    uiState.currentPath !in listOf("素材", "动图", "修图", "生图") &&
+                    uiState.folderContent?.parent != null -> {
+
+                val parentPath = uiState.folderContent!!.parent.path
+
+                // 记住当前目录滚动位置
+                rememberDirectory(uiState.currentPath, parentPath)
+
+                viewModel.updateCurrentPath(parentPath)
+
+                scope.launch {
+                    refreshFolder(uiState.currentPath)
                 }
+
             }
 
-            // 4️⃣ 否则退出应用
+            // 4️⃣ 退出应用
             else -> onExitApp()
         }
     }
 
-
-
+    /**
+     * UI区
+     */
     Scaffold(
         modifier = Modifier.background(Color.White),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (true){
-                val pathParts = currentPath
+                val pathParts = uiState.currentPath
                     .split("/")
                     .filter { it.isNotBlank() }
 
-                val bottomText = pathParts.lastOrNull() ?: ""
+                var topText = pathParts.lastOrNull() ?: ""
 
-                var topText = pathParts
+                var bottomText = pathParts
                     .dropLast(1)
                     .joinToString("·")
 
-                while (topText.length > 15 && topText.contains("·")) {
-                    topText = topText.substringAfter("·")
+                while (bottomText.length > 30 && bottomText.contains("·")) {
+                    bottomText = bottomText.substringAfter("·")
                 }
-
-
 
 
                 if (isTopBarVisible) {
                     TopAppBar(
                         title = {
                             Column {
-                                Text(
-                                    text = topText,
-                                    color = topBarColor,
-                                    fontSize = 18.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = bottomText,
-                                    color = topBarColor,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                if(topText.isNotEmpty()){
+                                    Text(
+                                        text = topText,
+                                        color = topBarColor,
+                                        fontSize = 18.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                if (bottomText.isNotEmpty()){
+                                    Text(
+                                        text = bottomText,
+                                        color = topBarColor,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
                             }
 
                         },
@@ -505,18 +625,14 @@ fun AlbumScreen(
                             ) {
                                 if (multiSelectMode) {
                                     IconButton(onClick = {
-                                        if (selectedImages.size == folderContent?.files?.count { !it.is_dir }) {
-                                            // 如果已经全选，则清空
-                                            selectedImages.clear()
+                                        val files = folderContent?.files.orEmpty()
+                                        val selectableCount = files.count { !it.is_dir }
+                                        if (uiState.selectedPaths.size == selectableCount) {
+                                            // 已全选 → 清空
+                                            viewModel.clearSelection()
                                         } else {
-                                            // 否则选中所有图片
-                                            selectedImages.clear()
-                                            selectedImages.addAll(
-                                                folderContent?.files
-                                                    ?.filter { !it.is_dir }
-                                                    ?.map { it.file_url ?: it.path }
-                                                    ?: emptyList()
-                                            )
+                                            // 未全选 → 全选
+                                            viewModel.selectAllFiles(files)
                                         }
                                     }) {
                                         Icon(
@@ -526,16 +642,14 @@ fun AlbumScreen(
                                         )
                                     }
                                 } else {
-                                    if (previewImagePath == null){
-                                        IconButton(onClick = {
-                                            showAddSheet = true
-                                        }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Add,
-                                                contentDescription = "新增",
-                                                tint = topBarColor
-                                            )
-                                        }
+                                    IconButton(onClick = {
+                                        showAddSheet = true
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "新增",
+                                            tint = topBarColor
+                                        )
                                     }
                                 }
 
@@ -571,8 +685,8 @@ fun AlbumScreen(
                                         onClick = {
                                             expanded = false
                                             scope.launch {
-                                                RetrofitClient.getApi().refresh(currentPath)
-                                                refreshFolder()
+                                                RetrofitClient.getApi().refresh(uiState.currentPath)
+                                                refreshFolder(uiState.currentPath)
                                             }
                                         }
                                     )
@@ -585,7 +699,6 @@ fun AlbumScreen(
                                         }
                                     )
                                 }
-
                             }
                         },
                         colors = topAppBarColors(
@@ -604,7 +717,6 @@ fun AlbumScreen(
                             }
                     )
                 }
-
             }
         },
         floatingActionButton = {
@@ -629,7 +741,6 @@ fun AlbumScreen(
         }
     ) {
 
-        val hideStates = remember { mutableStateMapOf<String, Boolean>() }
 
         Box (
             modifier = Modifier
@@ -641,44 +752,19 @@ fun AlbumScreen(
                         detectHorizontalDragGestures { change, dragAmount ->
                             val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
                             scope.launch {
-                                if (dragAmount > 30 && currentIndex > 0) { // 向右
-                                    val newTab = pathOptions[currentIndex - 1]
-
-                                    // 1. 保存旧路径
-                                    savePath(currentTab, currentPath)
-
-                                    // 2. 切 tab
-                                    currentTab = newTab.first
-
-                                    // 3. 获取新路径
-                                    var targetPath = getSavedPath(newTab.first, newTab.second)
-                                    if (!targetPath.contains(newTab.second)){
-                                        targetPath = newTab.second
-                                    }
-                                    // 4. 记忆目录
-                                    rememberDirectory(currentPath, targetPath)
-
-                                    // 5. 修改 currentPath
-                                    currentPath = targetPath
-
-                                    // 6. 刷新
-                                    refreshFolder()
-
-                                } else if (dragAmount < -30 && currentIndex < pathOptions.size - 1) { // 向左
-                                    val newTab = pathOptions[currentIndex + 1]
-
-                                    savePath(currentTab, currentPath)
-                                    currentTab = newTab.first
-
-                                    var targetPath = getSavedPath(newTab.first, newTab.second)
-                                    if (!targetPath.contains(newTab.second)){
-                                        targetPath = newTab.second
-                                    }
-                                    rememberDirectory(currentPath, targetPath)
-                                    currentPath = targetPath
-
-                                    refreshFolder()
+                                val newIndex = when {
+                                    dragAmount > 30 && currentIndex > 0 -> currentIndex - 1
+                                    dragAmount < -30 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
+                                    else -> return@launch
                                 }
+
+                                val (tabKey, defaultPath) = pathOptions[newIndex]
+
+                                switchTab(
+                                    newTab = tabKey,
+                                    defaultPath = defaultPath,
+                                    uiState = uiState
+                                )
                             }
 
                         }
@@ -693,47 +779,6 @@ fun AlbumScreen(
                     // 图片/文件夹网格
                     folderContent?.let { content ->
 
-                        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-
-                        fun getCoreName(name: String): String {
-                            var base = name.substringBeforeLast(".")      // 去掉扩展名
-                            base = base.substringBefore("-换衣")           // 截断 -换衣 及之后
-                            base = base.replace(Regex("[ab]$"), "")       // 去掉末尾 a 或 b
-                            return base
-                        }
-
-                        // 统一排序一次
-                        val sortedFiles = content.files
-                            .filter { !it.is_dir }
-                            .let { files ->
-                                // 如果全部或部分是 mp4，则按时间排序
-                                val isMp4Only = files.all { it.file_url?.lowercase()?.endsWith(".mp4") == true }
-                                if (isMp4Only || currentPath == "修图") {
-                                    files.sortedByDescending { file ->
-                                        runCatching {
-                                            dateFormat.parse(file.date)?.time ?: Long.MAX_VALUE
-                                        }.getOrDefault(Long.MAX_VALUE)
-                                    }
-                                } else {
-                                    // 之前的分组排序逻辑（非 mp4 文件）
-                                    files
-                                        .groupBy { getCoreName(it.name) }
-                                        .toList()
-                                        .sortedByDescending { (_, groupFiles) ->
-                                            groupFiles.minOfOrNull { file ->
-                                                runCatching { dateFormat.parse(file.date)?.time ?: Long.MAX_VALUE }.getOrDefault(Long.MAX_VALUE)
-                                            } ?: Long.MAX_VALUE
-                                        }
-                                        .flatMap { (_, groupFiles) ->
-                                            groupFiles.sortedWith(compareBy<FileInfo> {
-                                                runCatching { dateFormat.parse(it.date)?.time ?: Long.MAX_VALUE }
-                                                    .getOrDefault(Long.MAX_VALUE)
-                                            }.thenBy { it.name.lowercase() })
-                                        }
-                                }
-                            }
-
-
                         val collator = Collator.getInstance(Locale.CHINA)
 
                         val sortedFolders = content.folders
@@ -742,7 +787,7 @@ fun AlbumScreen(
                                 collator.compare(a.name, b.name)
                             }
 
-                        val allItems = sortedFolders + sortedFiles
+                        val allItems = sortedFolders + uiState.sortedFiles
                         val fileCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
 
                         if (readyToDisplay) {
@@ -756,8 +801,10 @@ fun AlbumScreen(
                                         val startTime = System.currentTimeMillis()
 
                                         // 执行实际刷新逻辑
-                                        rememberDirectory(currentPath, currentPath)
-                                        refreshFolder()
+                                        rememberDirectory(uiState.currentPath, uiState.currentPath)
+
+                                        refreshFolder(uiState.currentPath)
+
 
                                         // 计算已用时间
                                         val elapsed = System.currentTimeMillis() - startTime
@@ -775,7 +822,7 @@ fun AlbumScreen(
                                     Indicator(
                                         modifier = Modifier
                                             .align(Alignment.TopCenter)
-                                            .padding(top = 120.dp),
+                                            .padding(top = 100.dp),
                                         isRefreshing = isRefreshing,
                                         containerColor = Color.White,
                                         color = Color(0xFF0066FF),
@@ -784,7 +831,14 @@ fun AlbumScreen(
                                 },
                                 modifier = Modifier.fillMaxSize(),
                             ) {
-                                GridWithVerticalScrollHandleOverlay(allItems = allItems, columns = 3, handleHeight = 40.dp, gridState = gridState) {
+                                GridWithVerticalScrollHandleOverlay(
+                                    allItems = allItems,
+                                    columns = 3,
+                                    handleHeight = 40.dp,
+                                    gridState = gridState,
+                                    gridPaddingTop = 100.dp,
+                                    gridPaddingBottom = 64.dp
+                                ) {
 
                                     fun getItemIndexAndFileByPreviewPath(path: String?): Pair<Int, FileInfo?> {
                                         if (path == null) return -1 to null
@@ -801,83 +855,57 @@ fun AlbumScreen(
                                         val lastVisible = visibleItems.lastOrNull()?.index ?: -1
                                         return index in firstVisible..lastVisible
                                     }
-                                    LaunchedEffect(previewImagePath) {
-                                        previewImagePath?.let { path ->
-//                                            Log.d("delete1", selectedImages.toString())
-//                                            Log.d("delete2", previewImagePath.toString())
-                                            // 如果不在 selectedImages 中，则加入
-//                                            val relativePath = path.substringAfter("photos/")      // 返回 "素材/upload_1769661571118.jpg"
-//                                            val finalPath = "photos/$relativePath"               // 补回前缀 "photos/"
-//                                            if (!selectedImages.contains(finalPath)) {
-//                                                selectedImages.add(finalPath)
-//                                            }
-//                                            Log.d("delete","变化")
-                                            // 找到目标索引
-                                            val (targetIndex, targetFile) = getItemIndexAndFileByPreviewPath(path)
-//                                            Log.d("delete","targetIndex:${targetIndex}")
-                                            if (!selectedImages.contains(targetFile?.file_url ?: "")) {
-                                                selectedImages.add(targetFile?.file_url ?: "")
-                                            }
-                                            // 如果不在可见范围，滚动到它
-                                            delay(200)
-                                            if (!isItemVisible(gridState, targetIndex)) {
-                                                gridState.animateScrollToItem(targetIndex)
-                                            }
+
+                                    LaunchedEffect(uiState.previewPath) {
+                                        val path = uiState.previewPath ?: return@LaunchedEffect
+
+                                        val (targetIndex, targetFile) =
+                                            getItemIndexAndFileByPreviewPath(path)
+
+                                        if (targetIndex < 0 || targetFile == null) return@LaunchedEffect
+
+                                        // 先 bringIntoView（如果你有）
+                                        bringIntoViewRequesters[targetFile.path]?.bringIntoView()
+
+                                        // 再兜底滚动
+                                        if (!isItemVisible(gridState, targetIndex)) {
+                                            gridState.animateScrollToItem(targetIndex)
                                         }
                                     }
-//                                    LaunchedEffect(previewImagePath) {
-//                                        previewImagePath?.let { path ->
-//                                            val (targetIndex, targetFile) = getItemIndexAndFileByPreviewPath(path)
-//                                            // 等待下一帧 Compose 刷新
-//                                            snapshotFlow { gridState.layoutInfo.totalItemsCount }
-//                                                .filter { it > 0 } // 确保 item 已经更新
-//                                                .first()
-//                                            if (!selectedImages.contains(targetFile?.file_url ?: "")) {
-//                                                selectedImages.add(targetFile?.file_url ?: "")
-//                                            }
-//                                            if (!isItemVisible(gridState, targetIndex)) {
-//                                                gridState.animateScrollToItem(targetIndex)
-//                                            }
-//                                        }
-//                                    }
+
 
                                     LazyVerticalGrid(
                                         state = gridState,
                                         columns = GridCells.Fixed(3),
                                         modifier = Modifier
                                             .fillMaxSize(),
-                                        contentPadding = PaddingValues(top = 120.dp, bottom = 64.dp),
                                         verticalArrangement = Arrangement.spacedBy(1.dp),
                                         horizontalArrangement = Arrangement.spacedBy(1.dp)
                                     ) {
                                         items(allItems, key = { it.path }) { file ->
-//                                            val fullUrl = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
                                             val url = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
+
+                                            val requester = remember { BringIntoViewRequester() }
+
+                                            LaunchedEffect(file.path) {
+                                                bringIntoViewRequesters[file.path] = requester
+                                            }
 
                                             if (!hideStates.containsKey(url)) {
                                                 hideStates[url.toString()] = false
                                             }
 
-                                            LaunchedEffect(Unit) {
-                                                snapshotFlow { previewImagePath }
-                                                    .collect { currentPreviewPath ->
-//                                                        Log.d("hideStates", "currentPreviewPath: $currentPreviewPath")
-//                                                        Log.d("hideStates", "url: $url")
-//                                                        Log.d("hideStates", "相等吗: ${currentPreviewPath == url}")
+                                            LaunchedEffect(uiState.previewPath) {
+                                                val key = url.toString()
 
-                                                        if (currentPreviewPath == url) {
-//                                                            Log.d("hideStates", "设置隐藏: true")
-                                                            delay(50)
-                                                            hideStates[url.toString()] = true
-                                                            // 立即打印确认
-//                                                            Log.d("hideStates", "设置后状态: ${hideStates[url]}")
-                                                        } else {
-                                                            // 重要：添加恢复逻辑
-//                                                            Log.d("hideStates", "设置显示: false")
-                                                            hideStates[url.toString()] = false
-                                                        }
-                                                    }
+                                                if (uiState.previewPath == url) {
+                                                    delay(50)
+                                                    hideStates[key] = true
+                                                } else {
+                                                    hideStates[key] = false
+                                                }
                                             }
+
                                             LaunchedEffect(gridState) {
                                                 snapshotFlow { gridState.layoutInfo.visibleItemsInfo }
                                                     .collect { visibleItems ->
@@ -890,250 +918,255 @@ fun AlbumScreen(
                                                         }
                                                     }
                                             }
-
-
-
-                                            Column(
+                                            Box( // ✅ 最外层
                                                 modifier = Modifier
-                                                    .onGloballyPositioned { coords ->
-                                                        fileCoordsMap[file.path] = coords
-                                                    }
-                                                    .aspectRatio(1f)
-                                                    .combinedClickable(
-                                                        onClick = {
-                                                            if (file.is_dir) {
-                                                                // 打开目录
-                                                                rememberDirectory(currentPath, file.path)
-                                                                currentPath = file.path
-                                                                scope.launch { refreshFolder() }
-                                                            } else {
-                                                                // 文件才使用 URL
-                                                                if (url == null) {
-                                                                    Toast.makeText(context, "文件未准备好，请稍候", Toast.LENGTH_SHORT).show()
-                                                                    return@combinedClickable
-                                                                }
-                                                                if (multiSelectMode) {
-
-                                                                    if (selectedImages.contains(file.file_url)) {
-                                                                        selectedImages.remove(file.file_url)
-                                                                    } else {
-                                                                        selectedImages.add(file.file_url)
-                                                                    }
-                                                                } else {
-                                                                    previewImagePath = file.net_url
-                                                                    selectedFileForMenu = file
-                                                                    selectedImages.add(file.file_url)
-
-                                                                }
-                                                            }
-                                                        },
-                                                        onLongClick = {
-                                                            if (!file.is_dir) {
-                                                                multiSelectMode = true
-                                                                selectedImages.add(file.file_url ?: file.path)
-                                                                selectedImagesPath.add(file.path)
-                                                            }
-                                                        }
-                                                    ),
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.Center
+                                                    .fillMaxWidth()
+                                                    .bringIntoViewRequester(requester)
                                             ) {
-                                                if (file.is_dir) {
-                                                    Column(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .wrapContentHeight(),
-                                                        horizontalAlignment = Alignment.CenterHorizontally
-                                                    ) {
-                                                        Surface(
-                                                            tonalElevation = 2.dp,
-                                                            shadowElevation = 6.dp,
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = Color(0xFFEFEFEF), // ✅ 指定背景色，避免默认白底透出
-                                                            modifier = Modifier.size(48.dp)
-                                                        ) {
-                                                            Image(
-                                                                painter = painterResource(id = R.drawable.folder),
-                                                                contentDescription = "Folder",
-                                                                modifier = Modifier.fillMaxSize(),
-                                                                contentScale = ContentScale.Crop // ✅ 填充整个圆角区域
-                                                            )
+                                                Column(
+                                                    modifier = Modifier
+                                                        .onGloballyPositioned { coords ->
+                                                            fileCoordsMap[file.path] = coords
                                                         }
+                                                        .aspectRatio(1f)
+                                                        .combinedClickable(
+                                                            onClick = {
+                                                                if (file.is_dir) {
+                                                                    // 打开目录
+                                                                    rememberDirectory(
+                                                                        uiState.currentPath,
+                                                                        file.path
+                                                                    )
+                                                                    viewModel.updateCurrentPath(file.path)
+                                                                    scope.launch {
+                                                                        refreshFolder(uiState.currentPath)
+                                                                    }
 
-                                                        Spacer(modifier = Modifier.height(12.dp))
-                                                        Text(
-                                                            text = file.name,
-                                                            maxLines = 2,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                            style = MaterialTheme.typography.bodySmall,
-                                                            textAlign = TextAlign.Center,
+                                                                } else {
+                                                                    // 文件才使用 URL
+                                                                    if (url == null) {
+                                                                        Toast.makeText(
+                                                                            context,
+                                                                            "文件未准备好，请稍候",
+                                                                            Toast.LENGTH_SHORT
+                                                                        ).show()
+                                                                        return@combinedClickable
+                                                                    }
+                                                                    if (multiSelectMode) {
+                                                                        // 多选：只交给 ViewModel
+                                                                        viewModel.toggleSelect(file)
+
+                                                                    } else {
+                                                                        // 单选 + 打开预览
+                                                                        val indexInSortedFiles =
+                                                                            uiState.sortedFiles.indexOfFirst { it.path == file.path }
+
+                                                                        if (indexInSortedFiles >= 0) {
+                                                                            viewModel.openPreview(
+                                                                                file = file,
+                                                                                index = indexInSortedFiles
+                                                                            )
+                                                                        }
+
+                                                                        // UI 层还能保留的
+                                                                        selectedFileForMenu = file
+                                                                    }
+
+                                                                }
+                                                            },
+                                                            onLongClick = {
+                                                                if (!file.is_dir) {
+                                                                    multiSelectMode = true
+                                                                    viewModel.selectOnly(file)
+                                                                }
+                                                            }
+
+                                                        ),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    if (file.is_dir) {
+                                                        Column(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
-                                                                .height(36.dp)
-                                                                .padding(horizontal = 8.dp)
-                                                        )
-                                                    }
-                                                } else {
-                                                    val isVideo =
-                                                        file.file_url?.lowercase()?.endsWith(".mp4") == true
-//                                                    val imageLoader = rememberAuthImageLoader(context)
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxSize()
-                                                            .onGloballyPositioned { coordinates ->
-//                                                                val pos = coordinates.positionInWindow()
-//                                                                val size = coordinates.size
+                                                                .wrapContentHeight(),
+                                                            horizontalAlignment = Alignment.CenterHorizontally
+                                                        ) {
+                                                            Surface(
+                                                                tonalElevation = 2.dp,
+                                                                shadowElevation = 6.dp,
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                color = Color(0xFFEFEFEF), // ✅ 指定背景色，避免默认白底透出
+                                                                modifier = Modifier.size(48.dp)
+                                                            ) {
+                                                                Image(
+                                                                    painter = painterResource(id = R.drawable.folder),
+                                                                    contentDescription = "Folder",
+                                                                    modifier = Modifier.fillMaxSize(),
+                                                                    contentScale = ContentScale.Crop // ✅ 填充整个圆角区域
+                                                                )
+                                                            }
 
-                                                                visibleCoordsMap[file.path]?.let { coords ->
-                                                                    try {
-                                                                        // 检查是否仍然有效
-                                                                        if (coords.isAttached) {
-                                                                            val pos = coords.positionInWindow()
-                                                                            val size = coords.size
-                                                                            clickedThumbBounds = ImageBounds(
-                                                                                left = pos.x,
-                                                                                top = pos.y,
-                                                                                width = size.width.toFloat(),
-                                                                                height = size.height.toFloat()
+                                                            Spacer(modifier = Modifier.height(12.dp))
+                                                            Text(
+                                                                text = file.name,
+                                                                maxLines = 2,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                textAlign = TextAlign.Center,
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .height(36.dp)
+                                                                    .padding(horizontal = 8.dp)
+                                                            )
+                                                        }
+                                                    } else {
+                                                        val isVideo =
+                                                            file.file_url?.lowercase()?.endsWith(".mp4") == true
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .onGloballyPositioned { coordinates ->
+                                                                    visibleCoordsMap[file.path]?.let { coords ->
+                                                                        try {
+                                                                            // 检查是否仍然有效
+                                                                            if (coords.isAttached) {
+                                                                                val pos =
+                                                                                    coords.positionInWindow()
+                                                                                val size =
+                                                                                    coords.size
+                                                                                clickedThumbBounds =
+                                                                                    ImageBounds(
+                                                                                        left = pos.x,
+                                                                                        top = pos.y,
+                                                                                        width = size.width.toFloat(),
+                                                                                        height = size.height.toFloat()
+                                                                                    )
+                                                                            } else {
+                                                                                // 清理无效的坐标
+                                                                                visibleCoordsMap.remove(
+                                                                                    file.path
+                                                                                )
+                                                                                clickedThumbBounds =
+                                                                                    null
+                                                                            }
+                                                                        } catch (e: IllegalStateException) {
+                                                                            // 捕获异常并清理
+                                                                            visibleCoordsMap.remove(
+                                                                                file.path
                                                                             )
-                                                                        } else {
-                                                                            // 清理无效的坐标
-                                                                            visibleCoordsMap.remove(file.path)
-                                                                            clickedThumbBounds = null
+                                                                            clickedThumbBounds =
+                                                                                null
                                                                         }
-                                                                    } catch (e: IllegalStateException) {
-                                                                        // 捕获异常并清理
-                                                                        visibleCoordsMap.remove(file.path)
-                                                                        clickedThumbBounds = null
-//                                                                        Log.w("ThumbnailClick", "坐标已失效: ${e.message}")
+                                                                    }
+                                                                }
+                                                        ) {
+                                                            val path = file.file_url
+
+                                                            hideStates[url.toString()]?.let { it1 ->
+                                                                if (!it1){
+                                                                    AsyncImage(
+                                                                        model = ImageRequest.Builder(context)
+                                                                            .data(file.thumb_url ?: file.net_url)
+                                                                            .diskCacheKey(file.file_url ?: file.path)
+                                                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                                                            .networkCachePolicy(CachePolicy.ENABLED)
+                                                                            .crossfade(true)
+                                                                            .build(),
+                                                                        contentDescription = file.name,
+                                                                        contentScale = ContentScale.Crop,
+                                                                        modifier = Modifier
+                                                                            .fillMaxSize()
+                                                                            .clip(
+                                                                                RoundedCornerShape(
+                                                                                    0.dp
+                                                                                )
+                                                                            )
+                                                                            .background(Color.LightGray)
+                                                                    )
+                                                                }
+                                                            }
+                                                            val pathIsSelect = uiState.selectedPaths.contains(path)
+
+                                                            if (pathIsSelect) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .background(
+                                                                            Color.White.copy(
+                                                                                alpha = 0.3f
+                                                                            )
+                                                                        ) // 半透明白色遮罩
+                                                                )
+                                                            }
+
+                                                            if (multiSelectMode) {
+
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .align(Alignment.TopEnd)
+                                                                        .padding(4.dp)
+                                                                        .size(20.dp)
+                                                                        .border(
+                                                                            width = 2.dp,
+                                                                            color = Color.White, // 蓝色边框
+                                                                            shape = RoundedCornerShape(
+                                                                                2.dp
+                                                                            )
+                                                                        )
+                                                                        .background(
+                                                                            color = if (pathIsSelect
+                                                                            ) Color(
+                                                                                0xFFEE8E00
+                                                                            ) else Color.Transparent, // 蓝色背景
+                                                                            shape = RoundedCornerShape(
+                                                                                2.dp
+                                                                            )
+                                                                        ),
+                                                                    contentAlignment = Alignment.Center
+
+                                                                ) {
+                                                                    if (pathIsSelect) {
+                                                                        Icon(
+                                                                            Icons.Default.Check,
+                                                                            contentDescription = "Selected",
+                                                                            tint = Color.White,
+                                                                            modifier = Modifier.size(16.dp),
+                                                                        )
                                                                     }
                                                                 }
                                                             }
-                                                    ) {
-                                                        val path = file.file_url
-//                                                        val currentHideState = hideStates[url] ?: false
-//                                                        Log.d("hideStates", "检查状态 - url: $url, 状态: $currentHideState, 应该显示: ${!currentHideState}")
 
-                                                        hideStates[url.toString()]?.let { it1 ->
-                                                            if (!it1){
-                                                                AsyncImage(
-                                                                    model = ImageRequest.Builder(context)
-                                                                        .data(file.thumb_url ?: file.net_url)
-                                                                        .diskCacheKey(file.file_url ?: file.path)
-                                                                        .diskCachePolicy(CachePolicy.ENABLED)
-                                                                        .memoryCachePolicy(CachePolicy.ENABLED)
-                                                                        .networkCachePolicy(CachePolicy.ENABLED)
-                                                                        .crossfade(true)
-                                                                        .build(),
-                                                                    contentDescription = file.name,
-                                                                    contentScale = ContentScale.Crop,
+                                                            if (isVideo) {
+                                                                Surface(
+                                                                    color = Color.Black.copy(alpha = 0.6f),
+                                                                    shape = RoundedCornerShape(bottomStart = 4.dp),
                                                                     modifier = Modifier
-                                                                        .fillMaxSize()
-                                                                        .clip(RoundedCornerShape(0.dp))
-                                                                        .background(Color.LightGray)
-                                                                )
-                                                            }
-                                                        }
-
-                                                        if (selectedImages.contains(path)) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .fillMaxSize()
-                                                                    .background(
-                                                                        Color.White.copy(
-                                                                            alpha = 0.3f
+                                                                        .align(Alignment.TopStart)
+                                                                        .padding(2.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = "MP4",
+                                                                        color = Color.White,
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        modifier = Modifier.padding(
+                                                                            horizontal = 4.dp,
+                                                                            vertical = 2.dp
                                                                         )
-                                                                    ) // 半透明白色遮罩
-                                                            )
-                                                        }
-
-                                                        if (multiSelectMode) {
-
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .align(Alignment.TopEnd)
-                                                                    .padding(4.dp)
-                                                                    .size(20.dp)
-                                                                    .border(
-                                                                        width = 2.dp,
-                                                                        color = Color.White, // 蓝色边框
-                                                                        shape = RoundedCornerShape(2.dp)
-                                                                    )
-                                                                    .background(
-                                                                        color = if (selectedImages.contains(
-                                                                                path
-                                                                            )
-                                                                        ) Color(
-                                                                            0xFFEE8E00
-                                                                        ) else Color.Transparent, // 蓝色背景
-                                                                        shape = RoundedCornerShape(2.dp)
-                                                                    ),
-                                                                contentAlignment = Alignment.Center
-
-                                                            ) {
-                                                                if (selectedImages.contains(path)) {
-                                                                    Icon(
-                                                                        Icons.Default.Check,
-                                                                        contentDescription = "Selected",
-                                                                        tint = Color.White,
-                                                                        modifier = Modifier.size(16.dp),
                                                                     )
                                                                 }
-                                                            }
-                                                        }
-
-                                                        if (isVideo) {
-                                                            Surface(
-                                                                color = Color.Black.copy(alpha = 0.6f),
-                                                                shape = RoundedCornerShape(bottomStart = 4.dp),
-                                                                modifier = Modifier
-                                                                    .align(Alignment.TopStart)
-                                                                    .padding(2.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = "MP4",
-                                                                    color = Color.White,
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    modifier = Modifier.padding(
-                                                                        horizontal = 4.dp,
-                                                                        vertical = 2.dp
-                                                                    )
-                                                                )
                                                             }
                                                         }
                                                     }
                                                 }
                                             }
+
                                         }
 
                                     }
                                 }
                             }
-                        }
-
-                        // 预览大图使用同样的排序
-                        if (previewImagePath != null) {
-                            val filteredFiles = sortedFiles.filter {
-                                it.file_url?.matches(Regex(".*\\.(png|jpg|jpeg|gif|mp4|bmp)$", RegexOption.IGNORE_CASE)) == true
-                            }
-
-                            LaunchedEffect(filteredFiles) {
-                                imageList.clear()
-                                thumbList.clear()
-                                fileList.clear()
-
-                                imageList.addAll(filteredFiles.map { "${it.net_url}" })
-                                thumbList.addAll(filteredFiles.map { "${it.thumb_url}" })
-                                fileList.addAll(filteredFiles.map { it.path })
-
-                                if (currentImageIndex.value >= imageList.size) {
-                                    currentImageIndex.value = (imageList.size - 1).coerceAtLeast(0)
-                                } else {
-                                    currentImageIndex.value = imageList.indexOf(previewImagePath).coerceAtLeast(0)
-                                }
-                                isImageListReady = true
-                            }
-
                         }
 
                         // 删除确认对话框
@@ -1146,80 +1179,70 @@ fun AlbumScreen(
                                     Text("确认删除")
                                 },
                                 text = {
-                                    Text("确定要删除选中的 ${selectedImages.size} 个文件吗？此操作不可恢复。")
+                                    Text("确定要删除选中的 ${uiState.selectedPaths.size} 个文件吗？此操作不可恢复。")
                                 },
                                 confirmButton = {
                                     TextButton(
                                         onClick = {
                                             showDeleteDialog = false
-                                            Toast.makeText(context, "正在删除...", Toast.LENGTH_SHORT).show()
-                                            // 更新 currentIndex，防止越界
-                                            if (multiSelectMode){
-                                                val filesToDelete = selectedImages.mapNotNull { path ->
-                                                    folderContent?.files?.find { it.file_url == path || it.path == path }
-                                                }
 
-                                                filesToDelete.forEach { file ->
-                                                    val index = imageList.indexOf(file.net_url)
-                                                    if (index >= 0) {
-                                                        imageList.removeAt(index)
-                                                        thumbList.removeAt(index)
-                                                        fileList.removeAt(index)
+                                            scope.launch {
+                                                Toast.makeText(context, "正在删除...", Toast.LENGTH_SHORT).show()
+
+                                                if (multiSelectMode) {
+                                                    // =========================
+                                                    // 🟦 多选删除
+                                                    // =========================
+
+                                                    val pathsToDelete = uiState.selectedPaths
+
+                                                    val filesToDelete = pathsToDelete.mapNotNull { sel ->
+                                                        folderContent.files.find {
+                                                            it.path == sel || it.file_url == sel
+                                                        }
                                                     }
-                                                }
 
-
-                                                scope.launch {
-                                                    filesToDelete.map { file ->
-                                                        async {
-                                                            try {
+                                                    filesToDelete
+                                                        .map { file ->
+                                                            async {
                                                                 RetrofitClient.getApi().deleteFile(file.path)
-                                                            } catch (e: Exception) {
-                                                                e.printStackTrace()
                                                             }
                                                         }
-                                                    }.awaitAll()
-                                                    // 清理状态
-//                                                    Log.d("selectedImages1", selectedImages.toString())
-                                                    selectedImages.clear()
+                                                        .awaitAll()
+
+                                                    // ✅ 同步 UI
+                                                    viewModel.deleteMultipleAndUpdateState(pathsToDelete)
+
                                                     multiSelectMode = false
-                                                    Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
-                                                    refreshFolder()
+
+                                                    refreshFolder(uiState.currentPath)
+
+                                                } else {
+                                                    // =========================
+                                                    // 🟨 单张删除（预览态）
+                                                    // =========================
+
+                                                    val pathToDelete = uiState.previewPath
+                                                        ?: return@launch
+
+                                                    val fileToDelete = folderContent.files.find {
+                                                        it.net_url == pathToDelete
+                                                    } ?: return@launch
+
+                                                    RetrofitClient.getApi().deleteFile(fileToDelete.path)
+
+                                                    // ✅ 单删专用状态更新
+                                                    viewModel.deleteSingleAndUpdatePreview(
+                                                        file = fileToDelete
+                                                    )
+
+                                                    refreshFolder(uiState.currentPath)
                                                 }
-                                            } else {
-                                                if (selectedImages.isNotEmpty()) {
-                                                    val currentPath = selectedImages.first()
-                                                    val fileToDelete = folderContent?.files?.find { it.file_url == currentPath || it.path == currentPath }
 
-                                                    fileToDelete?.let { file ->
-                                                        val index = imageList.indexOf(file.net_url)
-                                                        if (index >= 0) {
-                                                            imageList.removeAt(index)
-                                                            thumbList.removeAt(index)
-                                                            fileList.removeAt(index)
-
-                                                            scope.launch {
-                                                                try {
-                                                                    RetrofitClient.getApi().deleteFile(file.path)
-                                                                    val newIndex = index.coerceAtMost(imageList.lastIndex)
-                                                                    previewImagePath = if (newIndex >= 0) imageList[newIndex] else null
-                                                                    currentIndex = newIndex
-                                                                    currentImageIndex.value = newIndex
-                                                                    selectedImages.remove(file.file_url ?: file.path)
-                                                                } catch (e: Exception) {
-                                                                    e.printStackTrace()
-                                                                }
-                                                                Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
-                                                                refreshFolder()
-
-
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                                Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
                                             }
-
                                         }
+
                                     ) {
                                         Text("删除", color = Color.Red)
                                     }
@@ -1243,80 +1266,68 @@ fun AlbumScreen(
 
 
 
-            if (true) {
-                // 🔹 底部路径切换条
-                Column(
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .background(Color.White)
+            ) {
+
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .background(Color.White)
+                        .height(64.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    pathOptions.forEach { (displayName, defaultPath) ->
+                        val isSelected = currentTab == displayName
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                                .combinedClickable(
+                                    enabled = !multiSelectMode,
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(64.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        pathOptions.forEach { (displayName, defaultPath) ->
-                            val isSelected = currentTab == displayName
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable(
-                                        enabled = !multiSelectMode,
-                                        onClick = {
-                                            scope.launch {
-//                                                savePath(currentTab, currentPath)
-//                                                currentTab = displayName
-//                                                currentPath = getSavedPath(displayName, defaultPath)
-//                                                refreshFolder()
-
-                                                // 1. 保存旧路径
-                                                savePath(currentTab, currentPath)
-
-                                                // 2. 切 tab
-                                                currentTab = displayName
-
-                                                // 3. 获取新路径
-                                                var targetPath = getSavedPath(displayName, defaultPath)
-                                                if (!targetPath.contains(defaultPath)){
-                                                    targetPath = defaultPath
-                                                }
-                                                // 4. 记忆目录
-                                                rememberDirectory(currentPath, targetPath)
-
-                                                // 5. 修改 currentPath
-                                                currentPath = targetPath
-
-                                                // 6. 刷新
-                                                refreshFolder()
-                                            }
+                                    onClick = {
+                                        // 单击：切 Tab
+                                        scope.launch {
+                                            switchTab(
+                                                newTab = displayName,
+                                                defaultPath = defaultPath,
+                                                uiState = uiState
+                                            )
                                         }
-                                    )
-                                    .fillMaxSize()
-                            ) {
-                                Text(
-                                    text = displayName,
-                                    color = if (isSelected) Color(0xFF0066FF) else Color.Gray,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                                    textAlign = TextAlign.Center, // 🔹 文字水平居中
-                                    modifier = Modifier.fillMaxWidth() // 🔹 文字宽度占满整个 Tab
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .height(3.dp)
-                                        .fillMaxWidth(0.4f) // 🔹 指示条略小于文字宽度，可调整
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(if (isSelected) Color(0xFF0066FF) else Color.Transparent)
-                                )
-                            }
+                                    },
 
+                                    onDoubleClick = {
+                                        // 双击：回到顶部
+                                        scope.launch {
+                                            gridState.animateScrollToItem(0)
+                                        }
+                                    }
+                                )
+
+                        ) {
+                            Text(
+                                text = displayName,
+                                color = if (isSelected) Color(0xFF0066FF) else Color.Gray,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                textAlign = TextAlign.Center, // 🔹 文字水平居中
+                                modifier = Modifier.fillMaxWidth() // 🔹 文字宽度占满整个 Tab
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .height(3.dp)
+                                    .fillMaxWidth(0.4f) // 🔹 指示条略小于文字宽度，可调整
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(if (isSelected) Color(0xFF0066FF) else Color.Transparent)
+                            )
                         }
+
                     }
                 }
             }
@@ -1385,65 +1396,47 @@ fun AlbumScreen(
             }
 
         }
-        if (previewImagePath != null && isImageListReady && imageList.isNotEmpty()) {
+
+        if (uiState.previewPath != null) {
             ImageDetailScreen(
-                imagePaths = imageList,
-                filePaths = fileList,
-                thumbPaths = thumbList,
-                initialIndex = currentImageIndex.value,
-                onClose = {
-//                    hideStates.keys.forEach { key ->
-//                        hideStates[key] = false
-//                    }
-                    scope.launch {
-                        delay(0) // 等待100ms，让缩略图显示动画完成
-                        selectedImages.clear()
-                        isTopBarVisible = true
-                        previewImagePath = null
-                        isImageListReady = false
-                    }
-
-                },
-                onGenerateClick = { selectedPath ->
-                    val file = folderContent?.files?.find { "${it.net_url}" == selectedPath }
-                    if (file != null && !file.is_dir) {
-                        if (!multiSelectMode) {
-                            // 当前未多选，第一次点击，进入多选模式
-                            selectedImages.clear()
-                            selectedImages.add(file.file_url ?: file.path)
-                            multiSelectMode = true
-                        } else {
-                            // 当前已经多选，第二次点击，退出多选模式
-                            selectedImages.clear()
-                            multiSelectMode = false
-                        }
-                    } else {
-
-                        Toast.makeText(context, "无法生成：未找到文件或文件夹", Toast.LENGTH_SHORT).show()
-                    }
-                },
+                sortedFiles  = uiState.sortedFiles,
+                initialIndex = uiState.currentIndex,
                 onImageClick = {
                     isTopBarVisible = !isTopBarVisible
                 },
                 onSelectedFileChange = { path ->
-                    // 更新当前右下角弹窗或上下文菜单的文件
-                    selectedFileForMenu = folderContent?.files?.find { "${it.net_url}" == path }
-                    // 如果处于多选模式，也可以同步更新多选列表
-                    val file = folderContent?.files?.find { "${it.net_url}" == path }
+                    val file = uiState.sortedFiles
+                        .firstOrNull { it.net_url == path }
+
                     if (file != null && !file.is_dir) {
-                        val fullPath = file.file_url ?: file.path
-                        if (multiSelectMode){
-                            if (!selectedImages.contains(fullPath)) selectedImages.add(fullPath)
+                        selectedFileForMenu = file
+
+                        if (multiSelectMode) {
+                            viewModel.toggleSelect(file)
                         } else {
-                            selectedImages.clear()
-                            selectedImages.add(fullPath)
+                            val index = uiState.sortedFiles.indexOf(file)
+                            if (index >= 0) {
+                                viewModel.openPreview(file, index)
+                            }
+
                             hideStates.clear()
-                            hideStates[file.net_url.toString()] = true
-                            previewImagePath = file.net_url
+                            hideStates[file.net_url ?: ""] = true
                         }
                     }
                 },
-                visibleCoordsMap = visibleCoordsMap
+                visibleCoordsMap = visibleCoordsMap,
+                onRequestClose = {
+                    overlayVisible = false
+                    imageClosing = true
+                },
+                onCloseAnimationEnd = {
+                    imageClosing = false
+                    viewModel.closePreview()
+                    viewModel.clearSelection()
+                    hideStates.clear()
+                    isTopBarVisible = true
+                    overlayVisible = true
+                }
             )
 
         }
@@ -1461,7 +1454,7 @@ fun AlbumScreen(
                 onDismiss = {
                     showGenerateSheet = false
                     multiSelectMode = false
-                    selectedImages.clear()
+                    viewModel.clearSelection()
                 }
             )
         }
@@ -1494,7 +1487,8 @@ fun AlbumScreen(
                             try {
                                 RetrofitClient.getApi().deleteFile(file.path)
                                 Toast.makeText(context, "删除成功", Toast.LENGTH_SHORT).show()
-                                refreshFolder()
+                                refreshFolder(uiState.currentPath)
+
                             } catch (e: Exception) {
                                 e.printStackTrace()
                                 Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show()
@@ -1519,7 +1513,7 @@ fun AlbumScreen(
         visible = progressVisible,
         title = "正在上传",
         fileName = currentFileName,
-        currentIndex = currentIndex,
+        currentIndex = uiState.currentIndex,
         totalCount = totalCount,
     )
 
@@ -1584,32 +1578,38 @@ fun AlbumScreen(
         NudeModeBottomSheet(
             maskEnabled = maskEnabled,
             onDismiss = { showNudeSheet = false },
+
             onMaskModeClick = {
                 showNudeSheet = false
                 scope.launch {
                     performNudeGeneration(
                         context = context,
-                        selectedImages = selectedImages,
-                        folderContent = folderContent,
-                        refreshFolder = { scope.launch { refreshFolder() } },
+                        selectedImages = uiState.selectedPaths.toList(),
+                        folderContent = uiState.folderContent,
+                        refreshFolder = { scope.launch {
+                            refreshFolder(uiState.currentPath)
+                        } },
                         clearSelection = {
-                            selectedImages.clear()
+                            viewModel.clearSelection()
                             multiSelectMode = false
                         },
                         creativeMode = false
                     )
                 }
             },
+
             onCreativeModeClick = {
                 showNudeSheet = false
                 scope.launch {
                     performNudeGeneration(
                         context = context,
-                        selectedImages = selectedImages,
-                        folderContent = folderContent,
-                        refreshFolder = { scope.launch { refreshFolder() } },
+                        selectedImages = uiState.selectedPaths.toList(),
+                        folderContent = uiState.folderContent,
+                        refreshFolder = { scope.launch {
+                            refreshFolder(uiState.currentPath)
+                        } },
                         clearSelection = {
-                            selectedImages.clear()
+                            viewModel.clearSelection()
                             multiSelectMode = false
                         },
                         creativeMode = true
@@ -1617,22 +1617,20 @@ fun AlbumScreen(
                 }
             }
         )
-
     }
 
-
-    if (isTopBarVisible && ((multiSelectMode && selectedImages.isNotEmpty()) || previewImagePath != null)) {
+    if (isTopBarVisible && ((multiSelectMode && uiState.selectedPaths.isNotEmpty()) || uiState.previewPath?.isNotEmpty() == true)) {
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(10f)
+                .graphicsLayer { alpha = 1 - bottomBarAlpha }
         ) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth(1f)
-,
+                    .fillMaxWidth(1f),
                 color = Color.White,
                 shadowElevation = 32.dp,     // 提升阴影
                 tonalElevation = 8.dp       // 细腻分层
@@ -1652,7 +1650,7 @@ fun AlbumScreen(
                             contentDescription = "换衣",
                             iconSize = 25.dp
                         ) {
-                            if (selectedImages.isNotEmpty()) {
+                            if (uiState.selectedPaths.isNotEmpty()) {
                                 showNudeSheet = true
                             } else {
                                 Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
@@ -1666,11 +1664,11 @@ fun AlbumScreen(
                             label = "修图",
                             contentDescription = "修图"
                         ) {
-                            if (selectedImages.isNotEmpty()) {
-                                generateImageUrls = selectedImages.mapNotNull { path ->
+                            if (uiState.selectedPaths.isNotEmpty()) {
+                                generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
                                     folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
                                 }
-                                generateThumbnailUrls = selectedImages.mapNotNull { path ->
+                                generateThumbnailUrls = uiState.selectedPaths.mapNotNull { path ->
                                     folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
                                 }
 
@@ -1690,11 +1688,11 @@ fun AlbumScreen(
                                 contentDescription = "动图",
                                 iconSize = 26.dp
                             ) {
-                                if (selectedImages.isNotEmpty()) {
-                                    generateImageUrls = selectedImages.mapNotNull { path ->
+                                if (uiState.selectedPaths.isNotEmpty()) {
+                                    generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
                                         folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
                                     }
-                                    generateThumbnailUrls = selectedImages.mapNotNull { path ->
+                                    generateThumbnailUrls = uiState.selectedPaths.mapNotNull { path ->
                                         folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
                                     }
 
@@ -1708,7 +1706,7 @@ fun AlbumScreen(
                     }
 
                     // --- 剪切 / 粘贴 ---
-                    if (previewImagePath == null){
+                    if (uiState.previewPath?.isNotEmpty() != true){
                         IconActionButton(
                             iconPainter = painterResource(
                                 id = if (cutList.isEmpty()) R.drawable.cut else R.drawable.paste
@@ -1722,25 +1720,25 @@ fun AlbumScreen(
                                 // ---------------------------------------
                                 //             执行“剪切”
                                 // ---------------------------------------
-                                if (selectedImages.isEmpty()) {
+                                if (uiState.selectedPaths.isEmpty()) {
                                     Toast.makeText(context, "未选择任何图片", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
                                 // 存储 file_path 而不是 file_url
-                                cutList = selectedImages.mapNotNull { path ->
+                                cutList = uiState.selectedPaths.mapNotNull { path ->
                                     folderContent?.files?.find { it.file_url == path || it.path == path }?.path
                                 }
-                                cutSourceDir = currentPath
+                                cutSourceDir = uiState.currentPath
 
                                 Toast.makeText(context, "已剪切 ${cutList.size} 项", Toast.LENGTH_SHORT).show()
-                                selectedImages.clear()
+                                viewModel.clearSelection()
                                 multiSelectMode = false
                             } else {
                                 // ---------------------------------------
                                 //             执行“粘贴”
                                 // ---------------------------------------
-                                val targetDir = currentPath
+                                val targetDir = uiState.currentPath
 //                            Log.d("MoveFile", cutList.toString())
                                 if (targetDir == cutSourceDir) {
                                     Toast.makeText(context, "目标文件夹与原位置相同", Toast.LENGTH_SHORT).show()
@@ -1767,7 +1765,8 @@ fun AlbumScreen(
                                     Toast.makeText(context, "已完成移动", Toast.LENGTH_SHORT).show()
 
                                     // 刷新当前文件夹
-                                    refreshFolder()
+                                    refreshFolder(uiState.currentPath)
+
                                     multiSelectMode = false
                                 }
                             }
@@ -1782,7 +1781,7 @@ fun AlbumScreen(
                         var downloadDialogVisible by remember { mutableStateOf(false) }
                         var currentDownloadingFile by remember { mutableStateOf("") }
                         var currentIndex by remember { mutableStateOf(0) }
-                        val totalCount = selectedImages.size
+                        val totalCount = uiState.selectedPaths.size
 
                         IconActionButton(
                             iconPainter = painterResource(id = R.drawable.download),
@@ -1791,11 +1790,11 @@ fun AlbumScreen(
                             contentDescription = "下载",
                             iconSize = 24.dp
                         ) {
-                            if (selectedImages.isNotEmpty()) {
+                            if (uiState.selectedPaths.isNotEmpty()) {
                                 scope.launch {
                                     downloadDialogVisible = true
                                     currentIndex = 0
-                                    selectedImages.forEachIndexed { index, imagePath ->
+                                    uiState.selectedPaths.forEachIndexed { index, imagePath ->
                                         currentIndex = index + 1
                                         currentDownloadingFile = imagePath.substringAfterLast("/")
                                         try {
@@ -1807,11 +1806,11 @@ fun AlbumScreen(
                                                 val response = okhttp3.OkHttpClient().newCall(request).execute()
                                                 if (!response.isSuccessful) throw Exception("下载失败")
 
-                                                response.body?.byteStream()?.use { inputStream ->
+                                                response.body.byteStream().use { inputStream ->
                                                     val savedUri = saveFileToGallery(context, inputStream, filename)
                                                     withContext(Dispatchers.Main) {
                                                         if (savedUri != null) {
-//                                                        Toast.makeText(context, "已保存：$filename", Toast.LENGTH_SHORT).show()
+                                            //                                                        Toast.makeText(context, "已保存：$filename", Toast.LENGTH_SHORT).show()
                                                         } else {
                                                             Toast.makeText(context, "保存失败：$filename", Toast.LENGTH_SHORT).show()
                                                         }
@@ -1851,7 +1850,7 @@ fun AlbumScreen(
                             label = "删除",
                             contentDescription = "删除"
                         ) {
-                            if (selectedImages.isNotEmpty()) {
+                            if (uiState.selectedPaths.isNotEmpty()) {
                                 showDeleteDialog = true
                             } else {
                                 Toast.makeText(context, "没有可删除的文件", Toast.LENGTH_SHORT).show()
@@ -1956,14 +1955,17 @@ fun AlbumScreen(
                             scope.launch {
                                 try {
                                     RetrofitClient.getApi().createFolder(
-                                        parent = currentPath,
+                                        parent = uiState.currentPath,
                                         name = folderName
                                     )
 
                                     Toast.makeText(context, "文件夹已创建", Toast.LENGTH_SHORT).show()
 
                                     // 刷新文件夹
-                                    refreshFolder()
+                                    scope.launch {
+                                        refreshFolder(uiState.currentPath)
+                                    }
+
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     Toast.makeText(context, "创建失败", Toast.LENGTH_SHORT).show()
@@ -1995,7 +1997,7 @@ fun IconActionButton(
     label: String,
     contentDescription: String = label,
     iconSize: Dp = 28.dp,
-    iconBoxHeight: Dp = 32.dp, // ✅ 固定图标区域高度
+    iconBoxHeight: Dp = 20.dp, // ✅ 固定图标区域高度
     onClick: () -> Unit
 ) {
     Column(
@@ -2046,12 +2048,13 @@ fun GridWithVerticalScrollHandleOverlay(
     gridState: LazyGridState,
     handleHeight: Dp = 40.dp, // 滑块高度
     handleWidth: Dp = 28.dp, // 滑块宽度
-    trackPaddingTop: Dp = 120.dp, // 轨道顶部 padding
-    trackPaddingBottom: Dp = 96.dp, // 轨道底部 padding
+    trackPaddingTop: Dp = 104.dp, // 轨道顶部 padding
+    trackPaddingBottom: Dp = 68.dp, // 轨道底部 padding
+    gridPaddingTop: Dp = 100.dp, // 轨道顶部 padding
+    gridPaddingBottom: Dp = 64.dp, // 轨道底部 padding
     content: @Composable (LazyGridState) -> Unit
 ) {
 
-    // ⭐⭐⭐ 新增：无内容提示（不会 return，不影响滑块布局）
     if (allItems.isEmpty()) {
         Box(
             modifier = Modifier
@@ -2082,9 +2085,11 @@ fun GridWithVerticalScrollHandleOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(top = gridPaddingTop, bottom = gridPaddingBottom) // 👈 上下边距
                 .onGloballyPositioned { coords ->
                     gridWidthPx = coords.size.width.toFloat()
-                }
+                },
+
         ) {
             content(gridState)
         }

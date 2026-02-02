@@ -1,5 +1,6 @@
 package com.kano.mycomfyui.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -177,9 +178,14 @@ fun TaskScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (task.task_type != "文生图"){
+                            var url = "${ServerConfig.baseUrl}${task.thumbnailUrl}"
+                            if (task.thumbnailUrl == "null"){
+                                url = "${ServerConfig.baseUrl}${task.imageUrl}"
+                            }
+//                            Log.d("imageurl", "thumbnailUrl:${task.thumbnailUrl}, imageUrl:${task.imageUrl}")
                             // 左侧图片，裁剪为正方形
                             AsyncImage(
-                                model = "${ServerConfig.baseUrl}${task.thumbnailUrl}",
+                                model = url,
                                 contentDescription = "任务图片",
                                 modifier = Modifier
                                     .size(108.dp)

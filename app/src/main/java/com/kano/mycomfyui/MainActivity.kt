@@ -67,7 +67,6 @@ import com.kano.mycomfyui.network.ServerConfig
 import com.kano.mycomfyui.ui.AlbumScreen
 import com.kano.mycomfyui.ui.AddressSettingScreen
 import com.kano.mycomfyui.ui.FunctionSettingScreen
-import com.kano.mycomfyui.ui.HelpScreen
 import com.kano.mycomfyui.ui.PromptAddScreen
 import com.kano.mycomfyui.ui.PromptEditScreen
 import com.kano.mycomfyui.ui.PromptListScreen
@@ -235,10 +234,6 @@ class MainActivity : ComponentActivity() {
 
                         composable("function_settings") {
                             FunctionSettingScreen()
-                        }
-
-                        composable("help") {
-                            HelpScreen()
                         }
 
                         composable("prompt_list") {

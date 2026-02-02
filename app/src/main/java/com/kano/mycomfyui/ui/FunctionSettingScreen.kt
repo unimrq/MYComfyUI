@@ -48,7 +48,6 @@ fun FunctionSettingScreen() {
             SettingSwitchCard(
                 title = "图生视频功能",
                 checked = videoGenEnabled,
-                description = "开启后在长按图片的弹出菜单中新增一项“动图”，此功能要求服务器开放视频生成权限",
                 onCheckedChange = {
                     videoGenEnabled = it
                     saveVideoGenEnabled(context, it)
@@ -58,7 +57,6 @@ fun FunctionSettingScreen() {
             SettingSwitchCard(
                 title = "蒙版换衣功能",
                 checked = maskClothesEnabled,
-                description = "开启后在换衣功能中开放“蒙版模式”，此功能要求服务器开放蒙版换衣生成权限",
                 onCheckedChange = {
                     maskClothesEnabled = it
                     saveMaskClothesEnabled(context, it)
@@ -68,7 +66,6 @@ fun FunctionSettingScreen() {
             SettingSwitchCard(
                 title = "文生图功能",
                 checked = text2ImgEnabled,
-                description = "开启后在相册主界面开启文生图功能，此功能要求服务器开放文生图权限",
                 onCheckedChange = {
                     text2ImgEnabled = it
                     saveText2ImgEnabled(context, it)
@@ -82,7 +79,7 @@ fun FunctionSettingScreen() {
 fun SettingSwitchCard(
     title: String,
     checked: Boolean,
-    description: String,
+    description: String = "",
     onCheckedChange: (Boolean) -> Unit
 ) {
     Card(
@@ -94,7 +91,7 @@ fun SettingSwitchCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(14.dp),
         ) {
 
             Row(
@@ -115,13 +112,15 @@ fun SettingSwitchCard(
                 )
 
             }
+            if (!description.isEmpty()){
+                Text(
+                    text = description,
+                    fontSize = 13.sp,
+                    color = Color.Gray,
+                    lineHeight = 18.sp
+                )
+            }
 
-            Text(
-                text = description,
-                fontSize = 13.sp,
-                color = Color.Gray,
-                lineHeight = 18.sp
-            )
         }
     }
 }

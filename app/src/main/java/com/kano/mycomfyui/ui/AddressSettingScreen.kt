@@ -2,6 +2,7 @@ package com.kano.mycomfyui.ui
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
@@ -148,6 +150,7 @@ fun AddressSettingScreen() {
             modifier = Modifier
                 .padding(padding)
                 .padding(16.dp)
+                .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -215,20 +218,21 @@ fun AddressCard(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+
                 modifier = Modifier.fillMaxWidth()
             ) {
 
+                Text(
+                    text = "地址 ${index + 1}",
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(start = 0.dp,end = 8.dp)
+                )
                 // ===== 地址是否启用 =====
                 Switch(
                     checked = selected,
                     onCheckedChange = { if (it) onSelect() },
                     modifier = Modifier.scale(0.8f)
-                )
-
-                Text(
-                    text = "地址 ${index + 1}",
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(start = 4.dp)
                 )
 
             }
@@ -241,52 +245,66 @@ fun AddressCard(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                TextField(
-                    value = data.scheme,
-                    onValueChange = { onChange(data.copy(scheme = it)) },
-                    singleLine = true,
-                    modifier = Modifier.width(85.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                        unfocusedIndicatorColor = Color.Gray,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
+                Box(
+                    modifier = Modifier
+                        .width(85.dp)
+                        .height(40.dp)
+                        .clickable {
+                            val newScheme = if (data.scheme == "https://") "http://" else "https://"
+                            onChange(data.copy(scheme = newScheme))
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = data.scheme,
+                        style = MaterialTheme.typography.bodyMedium
                     )
-                )
+                }
+
 
                 TextField(
                     value = data.address,
                     onValueChange = { onChange(data.copy(address = it)) },
-                    placeholder  = { Text("地址", fontSize = 14.sp) },
+                    placeholder  = { Text("服务器地址", fontSize = 14.sp) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                     colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                        unfocusedIndicatorColor = Color.Gray,
+                        focusedIndicatorColor = Color.Transparent,     // ✅ 去掉聚焦下划线
+                        unfocusedIndicatorColor = Color.Transparent,   // ✅ 去掉未聚焦下划线
+                        disabledIndicatorColor = Color.Transparent,    // ✅ 去掉禁用下划线
+                        errorIndicatorColor = Color.Transparent,       // ✅ 去掉错误下划线
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent
                     )
                 )
 
             }
-
-            TextField(
-                value = data.secret,
-                onValueChange = { onChange(data.copy(secret = it)) },
-                placeholder  = { Text("密钥", fontSize = 14.sp) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodyMedium,
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                    unfocusedIndicatorColor = Color.Gray,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("密钥：", modifier = Modifier.width(85.dp),textAlign = TextAlign.Center)
+                TextField(
+                    value = data.secret,
+                    onValueChange = { onChange(data.copy(secret = it)) },
+                    placeholder  = { Text("无密钥可留空", fontSize = 14.sp) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,     // ✅ 去掉聚焦下划线
+                        unfocusedIndicatorColor = Color.Transparent,   // ✅ 去掉未聚焦下划线
+                        disabledIndicatorColor = Color.Transparent,    // ✅ 去掉禁用下划线
+                        errorIndicatorColor = Color.Transparent,       // ✅ 去掉错误下划线
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    )
                 )
-            )
+            }
+
 
 
         }

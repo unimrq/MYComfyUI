@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title 安装 APK 到设备
+title 安装 APK 到指定设备
 cd /d D:\Code\MYComfyUI\app\release
 
 echo ========================================
@@ -11,13 +11,14 @@ adb devices
 
 echo.
 echo ========================================
-echo  开始安装 app-release.apk ...
+echo  开始安装 app-release.apk 到设备 10AF9J1UCS00532 ...
 echo ========================================
-adb install -r app-release.apk
+adb -s 10AF9J1UCS00532 install -r app-release.apk
 
 echo.
 echo ========================================
 echo  安装完成！
-echo  按任意键退出...
 echo ========================================
-pause >nul
+
+REM 自动退出，不用 pause
+pause

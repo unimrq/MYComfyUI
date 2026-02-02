@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,8 @@ fun SettingsScreen(navController: NavController) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .background(Color.White)
+
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -68,10 +71,6 @@ fun SettingsScreen(navController: NavController) {
             SettingsCard("提示词", icon = Icons.Default.Build) {
                 navController.navigate("prompt_list")
             }
-            SettingsCard("帮助", icon = Icons.Default.Info) {
-                navController.navigate("help")
-            }
-
         }
     }
 }
@@ -85,6 +84,7 @@ fun SettingsCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .background(Color.White)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp)
