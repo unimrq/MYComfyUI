@@ -1187,7 +1187,6 @@ fun AlbumScreen(
                                             showDeleteDialog = false
 
                                             scope.launch {
-                                                Toast.makeText(context, "正在删除...", Toast.LENGTH_SHORT).show()
 
                                                 if (multiSelectMode) {
                                                     // =========================

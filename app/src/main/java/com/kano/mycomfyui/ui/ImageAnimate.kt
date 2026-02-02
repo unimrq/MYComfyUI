@@ -1,6 +1,5 @@
 package com.kano.mycomfyui.ui
 
-import android.util.Size
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
