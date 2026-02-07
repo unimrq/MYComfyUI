@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -84,6 +85,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1056,6 +1058,7 @@ fun AlbumScreen(
                                                                                     null
                                                                             }
                                                                         } catch (e: IllegalStateException) {
+                                                                            Log.e("debug", e.message.toString())
                                                                             // 捕获异常并清理
                                                                             visibleCoordsMap.remove(
                                                                                 file.path
@@ -1710,7 +1713,7 @@ fun AlbumScreen(
                         // 在 AlbumScreen 内
                         var downloadDialogVisible by remember { mutableStateOf(false) }
                         var currentDownloadingFile by remember { mutableStateOf("") }
-                        var currentIndex by remember { mutableStateOf(0) }
+                        var currentIndex by remember { mutableIntStateOf(0) }
                         val totalCount = uiState.selectedPaths.size
 
                         IconActionButton(
@@ -1971,6 +1974,7 @@ fun IconActionButton(
 }
 
 
+@SuppressLint("FrequentlyChangingValue")
 @Composable
 fun GridWithVerticalScrollHandleOverlay(
     modifier: Modifier,

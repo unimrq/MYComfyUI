@@ -45,6 +45,7 @@ import com.google.gson.Gson
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 private const val PREFS_NAME = "app_settings"
 private const val KEY_ADDRESS_LIST = "address_list"
@@ -99,7 +100,7 @@ data class ServerAddress(
 fun saveAddressList(context: Context, list: List<ServerAddress>) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val json = Gson().toJson(list)
-    prefs.edit().putString(KEY_ADDRESS_LIST, json).apply()
+    prefs.edit { putString(KEY_ADDRESS_LIST, json) }
 }
 
 
@@ -124,7 +125,7 @@ fun loadAddressList(context: Context): List<ServerAddress> {
 // 保存当前选中地址
 fun saveAddress(context: Context, address: String?) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    prefs.edit().putString(KEY_SELECTED_ADDRESS, address).apply()
+    prefs.edit { putString(KEY_SELECTED_ADDRESS, address) }
 }
 
 // 获取当前选中地址
