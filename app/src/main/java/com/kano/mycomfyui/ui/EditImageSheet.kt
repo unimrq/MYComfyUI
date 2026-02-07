@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -38,7 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -188,42 +193,29 @@ fun EditImageSheet(
                 items.filter { it.title.isNotBlank() }
             }
 
-            Column(
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 64.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 412.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(1.dp)
+                    .heightIn(max = 412.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp)
             ) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(
-                            space = 6.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                items(displayItems) { item ->
+                    val selected = selectedItems.contains(item)
+                    val useCount = tagUseCount[item.title] ?: 0
 
-                        ) {
-                        displayItems.forEach { item ->
-                            val selected = selectedItems.contains(item)
-                            val useCount = tagUseCount[item.title] ?: 0
-
-                            TinyTag(
-                                text = item.title,
-                                selected = selected,
-                                useCount = useCount,
-                                onClick = {
-                                    selectedItems =
-                                        if (selected) selectedItems - item else selectedItems + item
-                                }
-                            )
+                    TinyTag(
+                        text = item.title,
+                        selected = selected,
+                        useCount = useCount,
+                        onClick = {
+                            selectedItems =
+                                if (selected) selectedItems - item else selectedItems + item
                         }
-                    }
+                    )
                 }
-
             }
         }
 
@@ -411,19 +403,24 @@ fun TinyTag(
 
     val bgColor =
         if (selected) deepColor
-        else androidx.compose.ui.graphics.lerp(baseColor, deepColor, fraction)
+        else lerp(baseColor, deepColor, fraction)
 
-    Text(
-        text = text,
-        fontSize = 12.sp,
-        color = if (selected) Color.White else Color.Black,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    Box(
         modifier = Modifier
             .background(bgColor, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp)
-    )
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            color = if (selected) Color.White else Color.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+    }
 }
 
 

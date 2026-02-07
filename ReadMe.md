@@ -10,14 +10,17 @@
 6. 任务监视管理；
 
 # 预览
-![微信图片_20260204235557_264_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235557_264_53.jpg)
-![微信图片_20260204235558_265_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235558_265_53.jpg)
-![微信图片_20260204235559_266_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235559_266_53.jpg)
-![微信图片_20260204235600_267_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235600_267_53.jpg)
-![微信图片_20260204235601_268_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235601_268_53.jpg)
-![微信图片_20260204235602_269_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235602_269_53.jpg)
-![微信图片_20260204235603_270_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235603_270_53.jpg)
-![微信图片_20260204235603_271_53.jpg](ReadMeAssets/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87_20260204235603_271_53.jpg)
+![img_1.png](ReadMeAssets/img_1.png)
+![img_2.png](ReadMeAssets/img_2.png)
+![img_3.png](ReadMeAssets/img_3.png)
+![img_4.png](ReadMeAssets/img_4.png)
+![img_5.png](ReadMeAssets/img_5.png)
+![img_6.png](ReadMeAssets/img_6.png)
+![img_7.png](ReadMeAssets/img_7.png)
+![img_8.png](ReadMeAssets/img_8.png)
+![img_9.png](ReadMeAssets/img_9.png)
+![img_10.png](ReadMeAssets/img_10.png)
+
 
 # 部署
 1. 准备一个能运行Qwen-Image-Edit-AIO工作流的comfyUI环境，并且打开这个comfyUI的外部访问功能；
