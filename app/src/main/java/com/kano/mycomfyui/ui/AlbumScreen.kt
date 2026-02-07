@@ -7,7 +7,6 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -84,9 +83,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,7 +93,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -110,7 +106,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -127,7 +122,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
-import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -135,7 +129,6 @@ import com.google.gson.Gson
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
 import com.kano.mycomfyui.data.FolderContent
-import com.kano.mycomfyui.network.OkHttpProvider
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.CoroutineScope
@@ -144,8 +137,6 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -156,9 +147,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.text.Collator
-import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.collections.containsKey
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -204,14 +193,13 @@ fun AlbumScreen(
     var progressVisible by remember { mutableStateOf(false) }
     var currentFileName by remember { mutableStateOf("") }
     var totalCount by remember { mutableStateOf(0) }
-
+    var blankPressed by remember { mutableStateOf(false) }
 
     // 剪切板：存放待移动的文件
     var cutList by remember { mutableStateOf<List<String>>(emptyList()) }
     var cutSourceDir by remember { mutableStateOf("") }
     val refreshState = rememberPullToRefreshState()
     val videoEnabled = loadVideoGenEnabled(context)
-    val maskEnabled = loadMaskClothesEnabled(context)
     val text2imgEnabled = loadText2ImgEnabled(context)
     var showTextInputDialog by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
@@ -529,6 +517,12 @@ fun AlbumScreen(
         }
     }
 
+    LaunchedEffect(cutList.size) {
+        if(cutList.isEmpty()){
+            blankPressed = false
+        }
+    }
+
     BackHandler(enabled = true) {
         when {
             multiSelectMode -> {
@@ -537,13 +531,14 @@ fun AlbumScreen(
             }
 
             // 1️⃣ 清选择
-            uiState.selectedPaths.isNotEmpty() -> {
-                viewModel.clearSelection()
-            }
+//            uiState.selectedPaths.isNotEmpty() -> {
+//                viewModel.clearSelection()
+//            }
 
             // 2️⃣ 关闭预览
             uiState.previewPath != null -> {
                 viewModel.closePreview()
+                viewModel.clearSelection()
             }
 
             // 3️⃣ 返回父目录
@@ -832,6 +827,16 @@ fun AlbumScreen(
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 GridWithVerticalScrollHandleOverlay(
+                                    modifier = Modifier
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(
+                                                onLongPress = {
+                                                    if (cutList.isNotEmpty()){
+                                                        blankPressed = true
+                                                    }
+                                                }
+                                            )
+                                        },
                                     allItems = allItems,
                                     columns = 3,
                                     handleHeight = 40.dp,
@@ -1435,7 +1440,7 @@ fun AlbumScreen(
                     hideStates.clear()
                     isTopBarVisible = true
                     overlayVisible = true
-                }
+                },
             )
 
         }
@@ -1517,68 +1522,12 @@ fun AlbumScreen(
     )
 
 
-    suspend fun performNudeGeneration(
-        context: Context,
-        selectedImages: List<String>,
-        folderContent: FolderContent?,
-        refreshFolder: () -> Unit,
-        clearSelection: () -> Unit,
-        creativeMode: Boolean
-    ) {
 
-        var submitted = false
-
-        selectedImages.forEach { path ->
-            val file = folderContent?.files?.find {
-                it.file_url == path || it.path == path
-            }
-            file?.let { f ->
-                val fullUrl = f.file_url.toString()
-                if (!f.is_dir && fullUrl.matches(
-                        Regex(".*\\.(png|jpg|jpeg|webp)$", RegexOption.IGNORE_CASE)
-                    )
-                ) {
-                    try {
-                        if (creativeMode) {
-                            RetrofitClient.getApi().generateImage(
-                                type = "换衣_创意",
-                                imageUrl = fullUrl,
-                                thumbnailUrl = f.thumbnail_url.toString(),
-                                args = emptyMap()
-                            )
-                        } else {
-                            RetrofitClient.getApi().generateImage(
-                                type = "换衣_蒙版",
-                                imageUrl = fullUrl,
-                                thumbnailUrl = f.thumbnail_url.toString(),
-                                args = emptyMap()
-                            )
-                        }
-                        submitted = true
-
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        Toast.makeText(context, "网络错误: ${f.name}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-
-        // 🚀 在循环结束后只弹一次
-        if (!creativeMode && submitted) {
-            Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
-        }
-
-        clearSelection()
-        refreshFolder()
-    }
 
     if (showNudeSheet) {
         NudeModeBottomSheet(
-            maskEnabled = maskEnabled,
             onDismiss = { showNudeSheet = false },
-
-            onMaskModeClick = {
+            onCreativeModeClick = { params ->
                 showNudeSheet = false
                 scope.launch {
                     performNudeGeneration(
@@ -1592,33 +1541,15 @@ fun AlbumScreen(
                             viewModel.clearSelection()
                             multiSelectMode = false
                         },
-                        creativeMode = false
-                    )
-                }
-            },
-
-            onCreativeModeClick = {
-                showNudeSheet = false
-                scope.launch {
-                    performNudeGeneration(
-                        context = context,
-                        selectedImages = uiState.selectedPaths.toList(),
-                        folderContent = uiState.folderContent,
-                        refreshFolder = { scope.launch {
-                            refreshFolder(uiState.currentPath)
-                        } },
-                        clearSelection = {
-                            viewModel.clearSelection()
-                            multiSelectMode = false
-                        },
-                        creativeMode = true
+                        creativeMode = true,
+                        params = params
                     )
                 }
             }
         )
     }
 
-    if (isTopBarVisible && ((multiSelectMode && uiState.selectedPaths.isNotEmpty()) || uiState.previewPath?.isNotEmpty() == true)) {
+    if (isTopBarVisible && ((multiSelectMode && uiState.selectedPaths.isNotEmpty()) || uiState.previewPath?.isNotEmpty() == true) || (blankPressed && cutList.isNotEmpty())) {
 
         Box(
             modifier = Modifier
@@ -1645,8 +1576,8 @@ fun AlbumScreen(
                         IconActionButton(
                             iconPainter = painterResource(id = R.drawable.clothes),
                             tint = Color.Black,
-                            label = "换衣",
-                            contentDescription = "换衣",
+                            label = "脱衣",
+                            contentDescription = "脱衣",
                             iconSize = 25.dp
                         ) {
                             if (uiState.selectedPaths.isNotEmpty()) {
@@ -2042,6 +1973,7 @@ fun IconActionButton(
 
 @Composable
 fun GridWithVerticalScrollHandleOverlay(
+    modifier: Modifier,
     allItems: List<FileInfo>,
     columns: Int = 3,
     gridState: LazyGridState,
@@ -2082,7 +2014,7 @@ fun GridWithVerticalScrollHandleOverlay(
     Box(modifier = Modifier.fillMaxSize()) {
         // ------------------ Grid 内容 ------------------
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
                 .padding(top = gridPaddingTop, bottom = gridPaddingBottom) // 👈 上下边距
                 .onGloballyPositioned { coords ->

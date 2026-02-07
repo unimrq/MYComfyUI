@@ -1,5 +1,6 @@
 package com.kano.mycomfyui.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,7 +38,6 @@ fun FunctionSettingScreen() {
 
     // 读取 SharedPreferences
     var videoGenEnabled by remember { mutableStateOf(loadVideoGenEnabled(context)) }
-    var maskClothesEnabled by remember { mutableStateOf(loadMaskClothesEnabled(context)) }
     var text2ImgEnabled by remember { mutableStateOf(loadText2ImgEnabled(context)) }
 
     Scaffold(
@@ -60,32 +60,68 @@ fun FunctionSettingScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
 
+            var showKeyDialog by remember { mutableStateOf(false) }
+            var pendingEnableAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+
             SettingSwitchCard(
                 title = "图生视频功能",
                 checked = videoGenEnabled,
-                onCheckedChange = {
-                    videoGenEnabled = it
-                    saveVideoGenEnabled(context, it)
-                }
+                onCheckedChange = { target ->
+                    if (target) {
+                        // 尝试开启 → 需要密钥
+                        pendingEnableAction = {
+                            videoGenEnabled = true
+                            saveVideoGenEnabled(context, true)
+                        }
+                        showKeyDialog = true
+                    } else {
+                        // 关闭不需要密钥
+                        videoGenEnabled = false
+                        saveVideoGenEnabled(context, false)
+                    }
+                },
+                description = "Wan2.2 功能开发中"
             )
 
-            SettingSwitchCard(
-                title = "蒙版换衣功能",
-                checked = maskClothesEnabled,
-                onCheckedChange = {
-                    maskClothesEnabled = it
-                    saveMaskClothesEnabled(context, it)
-                }
-            )
 
             SettingSwitchCard(
                 title = "文生图功能",
                 checked = text2ImgEnabled,
-                onCheckedChange = {
-                    text2ImgEnabled = it
-                    saveText2ImgEnabled(context, it)
-                }
+                onCheckedChange = { target ->
+                    if (target) {
+                        // 尝试开启 → 需要密钥
+                        pendingEnableAction = {
+                            text2ImgEnabled = true
+                            saveText2ImgEnabled(context, true)
+                        }
+                        showKeyDialog = true
+                    } else {
+                        // 关闭不需要密钥
+                        text2ImgEnabled = false
+                        saveText2ImgEnabled(context, false)
+                    }
+                },
+                description = "Z-Image-Turbo 功能开发中"
             )
+
+
+            if (showKeyDialog) {
+                SecretKeyDialog(
+                    onConfirm = { key ->
+                        if (key == "root@1234") {
+                            pendingEnableAction?.invoke()
+                        }
+                        showKeyDialog = false
+                        pendingEnableAction = null
+                    },
+                    onDismiss = {
+                        showKeyDialog = false
+                        pendingEnableAction = null
+                    }
+                )
+            }
+
         }
     }
 }
@@ -115,9 +151,9 @@ fun SettingSwitchCard(
             ) {
                 Text(
                     text = title,
-                    color = Color.Black,
+                    color = Color(0xFF3965B0),
                     fontSize = 16.sp,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
 
                 Switch(
@@ -138,4 +174,42 @@ fun SettingSwitchCard(
 
         }
     }
+}
+
+
+@Composable
+fun SecretKeyDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var input by remember { mutableStateOf("") }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("请输入密钥") },
+        text = {
+            androidx.compose.material3.OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                label = { Text("密钥") },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            Text(
+                text = "确认",
+                modifier = Modifier
+                    .padding(8.dp)
+                    .clickable { onConfirm(input) }
+            )
+        },
+        dismissButton = {
+            Text(
+                text = "取消",
+                modifier = Modifier
+                    .padding(8.dp)
+                    .clickable { onDismiss() }
+            )
+        }
+    )
 }

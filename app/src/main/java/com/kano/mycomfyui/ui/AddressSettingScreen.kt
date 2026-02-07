@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,10 +50,6 @@ private const val PREFS_NAME = "app_settings"
 private const val KEY_ADDRESS_LIST = "address_list"
 private const val KEY_SELECTED_ADDRESS = "selected_address"
 private const val MAX_ADDRESS_COUNT = 3
-
-enum class Scheme {
-    HTTP, HTTPS
-}
 
 data class ServerAddress(
     val address: String = "",   // host:port
@@ -225,7 +220,7 @@ fun AddressCard(
     ) {
         Column(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 2.dp)
         ) {
 
             Row(
@@ -237,7 +232,8 @@ fun AddressCard(
 
                 Text(
                     text = "地址 ${index + 1}",
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
+                    color = Color(0xFF3965B0),
                     modifier = Modifier.padding(start = 0.dp,end = 8.dp)
                 )
                 // ===== 地址是否启用 =====
@@ -250,7 +246,7 @@ fun AddressCard(
             }
 
 
-            Spacer(Modifier.height(6.dp))
+//            Spacer(Modifier.height(6.dp))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -260,7 +256,7 @@ fun AddressCard(
                 Box(
                     modifier = Modifier
                         .width(85.dp)
-                        .height(40.dp)
+                        .height(32.dp)
                         .clickable {
                             val newScheme = if (data.scheme == "https://") "http://" else "https://"
                             onChange(data.copy(scheme = newScheme))
@@ -292,12 +288,13 @@ fun AddressCard(
                 )
 
             }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("密钥：", modifier = Modifier.width(85.dp),textAlign = TextAlign.Center)
+                Text("密钥：", modifier = Modifier.width(85.dp),textAlign = TextAlign.Center, fontSize = 14.sp)
                 TextField(
                     value = data.secret,
                     onValueChange = { onChange(data.copy(secret = it)) },

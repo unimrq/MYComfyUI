@@ -6,15 +6,19 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +39,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -45,6 +50,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.fontscaling.MathUtils.lerp
@@ -66,6 +72,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
 import com.kano.mycomfyui.MyApp
+import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
 import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.launch
@@ -154,7 +161,7 @@ fun ImageDetailScreen(
     onSelectedFileChange: ((String) -> Unit)? = null,
     visibleCoordsMap: SnapshotStateMap<String, LayoutCoordinates>,  // ✅ 新增
     onRequestClose: () -> Unit,
-    onCloseAnimationEnd: () -> Unit   // 动画结束
+    onCloseAnimationEnd: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -314,7 +321,6 @@ fun ImageDetailScreen(
         val startCenter = start.center
         val endCenter = end.center
 
-        // ⭐ 关键修正点
         val targetOffset = endCenter - startCenter
 
         return Transform(
@@ -422,6 +428,7 @@ fun ImageDetailScreen(
 
     }
 
+
     @SuppressLint("RestrictedApi")
     fun lerpRect(a: Rect, b: Rect, t: Float): Rect =
         Rect(
@@ -497,7 +504,6 @@ fun ImageDetailScreen(
                             }
                         } else {
                             offset += pan / newScale
-//                        dragY += pan.y
                         }
                     }
                 }
@@ -505,9 +511,6 @@ fun ImageDetailScreen(
                     // ✅ 双击放大/还原
                     detectTapGestures(
                         onTap = {
-//                        if(!isVideo){
-//                            onGenerateClick?.invoke(imagePaths[currentIndex])
-//                        }
                             if(!isVideo){
                                 onImageClick()
                             }
@@ -543,7 +546,6 @@ fun ImageDetailScreen(
                                             )
                                         )
 
-                                        // ⭐ 动画真正结束的回调
                                         onCloseAnimationEnd()
                                     }
                                 }
@@ -594,10 +596,15 @@ fun ImageDetailScreen(
                     pageSpacing = 8.dp,
                     userScrollEnabled = userScrollEnabled
                 ) { page ->
+                    var showRawImage by remember(page) { mutableStateOf(false) }
                     val currentFile = sortedFiles.getOrNull(page)
 
-                    val imagePath = currentFile?.net_url
                     val thumbPath = currentFile?.thumb_url
+                    val imagePath = if (showRawImage) {
+                        currentFile?.net_url?.replace("/photos/", "/photos-raw/")
+                    } else {
+                        currentFile?.net_url
+                    }
 
 
                     LaunchedEffect(pagerState) {
@@ -607,10 +614,13 @@ fun ImageDetailScreen(
                                     currentIndex = page
                                     val file = sortedFiles.getOrNull(currentIndex)
                                     file?.net_url?.let { onSelectedFileChange?.invoke(it) }
-
                                 }
                             }
 
+                    }
+
+                    LaunchedEffect(imagePath) {
+                        scale = 1f
                     }
 
                     Box(
@@ -634,7 +644,7 @@ fun ImageDetailScreen(
                                     .data(imagePath)
                                     .diskCachePolicy(CachePolicy.ENABLED)
                                     .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .size(coil.size.Size.ORIGINAL)
+                                    .size(Size.ORIGINAL)
                                     .apply {
                                         if (imagePath?.endsWith(".gif") == true) {
                                             decoderFactory(ImageDecoderDecoder.Factory())
@@ -729,7 +739,6 @@ fun ImageDetailScreen(
                                 success = {
                                     SubcomposeAsyncImageContent()
 
-                                    // ⭐ 兜底一次 imageSize
                                     val painter = painter
                                     val drawable = painter.intrinsicSize
                                     if (
@@ -743,9 +752,47 @@ fun ImageDetailScreen(
                                 }
 
                             )
+
+                            IconButton(
+                                onClick = { showRawImage = !showRawImage },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(end = 12.dp, top = 96.dp)
+                                    .size(32.dp).graphicsLayer { alpha = alpha1 }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(
+                                            color = Color.White.copy(alpha = 0f),
+                                            shape = CircleShape
+                                        )
+                                    ,
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (showRawImage) {
+                                        Image(
+                                            painter = painterResource(id = R.drawable.visibility),
+                                            contentDescription = "查看原图",
+                                            modifier = Modifier.size(22.dp),
+                                            colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+                                        )
+                                    } else {
+                                        Image(
+                                            painter = painterResource(R.drawable.visibility_off),
+                                            contentDescription = "查看原图",
+                                            modifier = Modifier.size(24.dp),
+                                            colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+                                        )
+                                    }
+
+                                }
+                            }
+
                         }
                     }
                 }
+
                 // ✅ 页码固定在屏幕底部中央
                 if(!isTopBarVisible){
                     Text(

@@ -23,6 +23,7 @@ fun sortPreviewableFiles(
 
     fun getCoreName(name: String): String {
         var base = name.substringBeforeLast(".")
+        base = base.substringBefore("-脱衣")
         base = base.substringBefore("-换衣")
         base = base.replace(Regex("[ab]$"), "")
         return base
@@ -165,50 +166,6 @@ class FolderViewModel : ViewModel() {
         }
     }
 
-    fun enterDirectory(
-        path: String,
-        content: FolderContent
-    ) {
-        val files = sortPreviewableFiles(
-            files = content.files,
-            currentPath = path,
-            dateFormat = dateFormat
-        )
-
-        _uiState.update {
-            it.copy(
-                currentPath = path,
-                folderContent = content,
-                sortedFiles = files,
-                currentIndex = 0,
-                previewPath = null,
-                selectedPaths = emptySet()
-            )
-        }
-    }
-
-    fun refreshCurrentDirectory(content: FolderContent) {
-        val path = _uiState.value.currentPath
-        val files = sortPreviewableFiles(
-            files = content.files,
-            currentPath = path,
-            dateFormat = dateFormat
-        )
-
-        _uiState.update {
-            val maxIndex = (files.size - 1).coerceAtLeast(0)
-            it.copy(
-                folderContent = content,
-                sortedFiles = files,
-                currentIndex = it.currentIndex.coerceIn(0, maxIndex)
-            )
-        }
-    }
-
-
-
-
-
     /* ---------- content ---------- */
 
     enum class ContentUpdateMode {
@@ -255,20 +212,6 @@ class FolderViewModel : ViewModel() {
     }
 
 
-    fun removeFilesByPath(paths: Set<String>) {
-        _uiState.update {
-            val newFiles = it.sortedFiles.filterNot { f ->
-                f.file_url in paths || f.path in paths
-            }
-
-            val maxIndex = (newFiles.size - 1).coerceAtLeast(0)
-            it.copy(
-                sortedFiles = newFiles,
-                currentIndex = it.currentIndex.coerceIn(0, maxIndex)
-            )
-        }
-    }
-
     /* ---------- preview / selection ---------- */
 
     fun openPreview(file: FileInfo, index: Int) {
@@ -288,11 +231,6 @@ class FolderViewModel : ViewModel() {
         }
     }
 
-    fun updateCurrentIndex(index: Int) {
-        _uiState.update {
-            it.copy(currentIndex = index)
-        }
-    }
 
     fun selectOnly(file: FileInfo) {
         val key = file.file_url ?: file.path

@@ -1,6 +1,7 @@
 package com.kano.mycomfyui.ui
 
 import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
@@ -41,13 +41,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.kano.mycomfyui.R
 import com.kano.mycomfyui.network.RetrofitClient
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +70,6 @@ fun SettingsScreen(navController: NavController) {
                 .padding(padding)
                 .fillMaxSize()
                 .background(Color.White)
-
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -73,15 +77,35 @@ fun SettingsScreen(navController: NavController) {
 
             ServerStatusCard()
 
-            SettingsCard("地址设置", icon = Icons.Default.Home) {
+            SettingsCard(
+                title = "地址设置",
+                iconVector = Icons.Default.Home
+            ) {
                 navController.navigate("address_settings")
             }
-            SettingsCard("功能设置", icon = Icons.Default.Settings) {
+
+            SettingsCard(
+                title = "功能设置",
+                iconVector = Icons.Default.Settings
+            ) {
                 navController.navigate("function_settings")
             }
-            SettingsCard("提示词", icon = Icons.Default.Build) {
+
+            SettingsCard(
+                title = "提示词",
+                iconPainter = painterResource(R.drawable.word)
+            ) {
                 navController.navigate("prompt_list")
             }
+
+            SettingsCard(
+                title = "Qwen设置",
+                iconVector = Icons.Default.Build
+            ) {
+                navController.navigate("qwen")
+            }
+
+
         }
     }
 }
@@ -89,52 +113,59 @@ fun SettingsScreen(navController: NavController) {
 @Composable
 fun SettingsCard(
     title: String,
-    icon: ImageVector? = null, // 可选图标
+    iconPainter: Painter? = null,
+    iconVector: ImageVector? = null,
     onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
-            .clickable { onClick() },
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(4.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .padding(16.dp)
+            modifier = Modifier.padding(16.dp)
         ) {
-            // 左侧图标
-            if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = Color(0xFF1976D2), // 可以改颜色
-                    modifier = Modifier.size(24.dp)
-                )
+
+            when {
+                iconVector != null -> {
+                    Icon(
+                        imageVector = iconVector,
+                        contentDescription = title,
+                        modifier = Modifier.size(24.dp),
+                        tint = Color(0xFF3965B0) // 你想要的颜色
+                    )
+
+                }
+
+                iconPainter != null -> {
+                    Image(
+                        painter = iconPainter,
+                        contentDescription = title,
+                        modifier = Modifier.size(24.dp),
+                        colorFilter = ColorFilter.tint(
+                            Color(0xFF3965B0),
+                            blendMode = BlendMode.SrcIn
+                        )
+                    )
+
+                }
+            }
+
+            if (iconVector != null || iconPainter != null) {
                 Spacer(modifier = Modifier.width(12.dp))
             }
 
-            // 标题
             Text(
                 text = title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.Black,
                 modifier = Modifier.weight(1f)
-            )
-
-            // 右侧箭头
-            Icon(
-                imageVector = Icons.Default.ArrowForward,
-                contentDescription = "前往",
-                tint = Color.Gray,
-                modifier = Modifier.size(20.dp)
             )
         }
     }
 }
+
 
 enum class ServerStatus {
     LOADING,
@@ -153,11 +184,13 @@ fun ServerStatusCard() {
             val alive = try {
                 api.getServerStatus().alive
             } catch (e: Exception) {
+                Log.e("debug", e.message.toString())
                 false
             }
             Log.d("getServerStatus", alive.toString())
             if (alive) ServerStatus.ONLINE else ServerStatus.OFFLINE
         } catch (e: Exception) {
+            Log.e("debug", e.message.toString())
             ServerStatus.OFFLINE
         }
     }

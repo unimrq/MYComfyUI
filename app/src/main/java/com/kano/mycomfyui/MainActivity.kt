@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
@@ -70,6 +71,7 @@ import com.kano.mycomfyui.ui.FunctionSettingScreen
 import com.kano.mycomfyui.ui.PromptAddScreen
 import com.kano.mycomfyui.ui.PromptEditScreen
 import com.kano.mycomfyui.ui.PromptListScreen
+import com.kano.mycomfyui.ui.QwenSettingScreen
 import com.kano.mycomfyui.ui.SettingsScreen
 import com.kano.mycomfyui.ui.TaskScreen
 import com.kano.mycomfyui.ui.loadAddressList
@@ -89,7 +91,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("app_settings", MODE_PRIVATE)
         val index = prefs.getString("selected_address", null)?.toIntOrNull()
 
 
@@ -116,12 +118,12 @@ class MainActivity : ComponentActivity() {
         RetrofitClient.rebuildRetrofit()
 
         fun saveUnlockState(context: Context, unlocked: Boolean) {
-            val prefs = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences("user_prefs", MODE_PRIVATE)
             prefs.edit().putBoolean("is_unlocked", unlocked).apply()
         }
 
         fun loadUnlockState(context: Context): Boolean {
-            val prefs = context.getSharedPreferences("user_prefs", Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences("user_prefs", MODE_PRIVATE)
             return prefs.getBoolean("is_unlocked", true)
         }
 
@@ -243,6 +245,11 @@ class MainActivity : ComponentActivity() {
                         composable("settings") {
                             SettingsScreen(navController)
                         }
+
+                        composable("qwen") {
+                            QwenSettingScreen()
+                        }
+
 
                         composable(
                             route = "prompt_edit/{title}",
@@ -405,7 +412,7 @@ fun BottomInputBar(
                     }
                     IconButton(onClick = { onSend() }) {
                         Icon(
-                            Icons.Default.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "发送",
                             tint = Color(0xFF4A80F0),
                             modifier = Modifier.rotate(90f)

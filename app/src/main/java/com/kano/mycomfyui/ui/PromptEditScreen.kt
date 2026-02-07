@@ -1,5 +1,6 @@
 package com.kano.mycomfyui.ui
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,8 +58,9 @@ fun PromptEditScreen(
                 .first { it.title == originalTitle }
 
             title = item.title
-            text = item.text ?: ""
+            text = item.text
         } catch (e: Exception) {
+            Log.e("debug", e.message.toString())
             Toast.makeText(context, "加载失败", Toast.LENGTH_SHORT).show()
         }
     }
@@ -69,7 +72,7 @@ fun PromptEditScreen(
                 title = { Text("编辑提示词") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                     }
                 }
             )
@@ -138,6 +141,7 @@ fun PromptEditScreen(
                                 Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
                                 navController.popBackStack()
                             } catch (e: Exception) {
+                                Log.e("debug", e.message.toString())
                                 Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -145,6 +149,8 @@ fun PromptEditScreen(
                 ) {
                     Text("保存")
                 }
+
+                Spacer(Modifier.height(360.dp))
 
             }
         }

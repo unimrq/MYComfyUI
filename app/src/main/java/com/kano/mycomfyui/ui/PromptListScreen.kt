@@ -1,7 +1,11 @@
 package com.kano.mycomfyui.ui
 
+import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,10 +14,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,13 +41,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.kano.mycomfyui.network.ApiService.PromptItem
 import com.kano.mycomfyui.network.RetrofitClient
 import kotlinx.coroutines.launch
-
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.kano.mycomfyui.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,9 +70,62 @@ fun PromptListScreen(
                 items = RetrofitClient.getApi().getPromptList()
             } catch (e: Exception) {
                 Toast.makeText(context, "加载失败", Toast.LENGTH_SHORT).show()
+                Log.e("debug", e.message.toString())
             }
         }
     }
+
+    val exportLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.CreateDocument("application/json")
+        ) { uri ->
+            if (uri != null) {
+                exportPromptsToJson(context, items, uri)
+                Toast.makeText(context, "导出成功", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    val importLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    try {
+                        val imported = importPromptsFromJson(context, uri)
+
+                        val existingTitles = items.map { it.title }.toSet()
+
+                        val uniqueToImport = imported
+                            .filter { it.title.isNotBlank() }
+                            .filter { it.title !in existingTitles }
+
+                        uniqueToImport.forEach { item ->
+                            RetrofitClient.getApi().addPrompt(
+                                title = item.title.trim(),
+                                text = item.text?.trim() ?: ""
+                            )
+                        }
+
+                        load()
+
+                        Toast.makeText(
+                            context,
+                            "导入 ${uniqueToImport.size} 条，跳过 ${imported.size - uniqueToImport.size} 条重复",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "导入失败", Toast.LENGTH_SHORT).show()
+                        Log.e("debug", e.message.toString())
+
+                    }
+
+                }
+            }
+        }
+
+
 
     LaunchedEffect(Unit) { load() }
 
@@ -75,13 +137,31 @@ fun PromptListScreen(
                 actions = {
                     IconButton(
                         onClick = {
+                            importLauncher.launch(arrayOf("application/json"))
+                        }
+                    ) {
+                        Icon(painter = painterResource(id = R.drawable.download), contentDescription = "导入", modifier = Modifier.size(23.dp))
+                    }
+
+
+                    IconButton(
+                        onClick = {
+                            exportLauncher.launch("prompts.json")
+                        }
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "导出")
+                    }
+
+                    IconButton(
+                        onClick = {
                             // 跳转到新增提示词页面
                             navController.navigate("prompt_add")
                         }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
-                            contentDescription = "新增提示词"
+                            contentDescription = "新增提示词",
+                            modifier = Modifier.size(30.dp)
                         )
                     }
                 }
@@ -128,6 +208,8 @@ fun PromptListScreen(
                                 load()
                             } catch (e: Exception) {
                                 Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show()
+                                Log.e("debug", e.message.toString())
+
                             }
                         }
                         showDeleteDialog = false
@@ -141,6 +223,31 @@ fun PromptListScreen(
             }
         )
     }
+}
+
+fun exportPromptsToJson(
+    context: Context,
+    prompts: List<PromptItem>,
+    uri: Uri
+) {
+    val json = Gson().toJson(prompts)
+    context.contentResolver.openOutputStream(uri)?.use { output ->
+        output.write(json.toByteArray(Charsets.UTF_8))
+    }
+}
+
+fun importPromptsFromJson(
+    context: Context,
+    uri: Uri
+): List<PromptItem> {
+    val json = context.contentResolver
+        .openInputStream(uri)
+        ?.bufferedReader()
+        ?.readText()
+        ?: return emptyList()
+
+    val type = object : TypeToken<List<PromptItem>>() {}.type
+    return Gson().fromJson(json, type)
 }
 
 
@@ -170,7 +277,7 @@ fun PromptListItem(
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = item.text ?: "",
+                text = item.text,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium

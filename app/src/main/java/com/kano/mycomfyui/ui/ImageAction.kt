@@ -6,28 +6,12 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.kano.mycomfyui.data.FolderContent
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
@@ -49,7 +33,8 @@ suspend fun performNudeGeneration(
     folderContent: FolderContent?,
     refreshFolder: () -> Unit,
     clearSelection: () -> Unit,
-    creativeMode: Boolean
+    creativeMode: Boolean,
+    params: Map<String, String>
 ) {
 
     var submitted = false
@@ -67,17 +52,10 @@ suspend fun performNudeGeneration(
                 try {
                     if (creativeMode) {
                         RetrofitClient.getApi().generateImage(
-                            type = "换衣_创意",
+                            type = "脱衣",
                             imageUrl = fullUrl,
                             thumbnailUrl = f.thumbnail_url.toString(),
-                            args = emptyMap()
-                        )
-                    } else {
-                        RetrofitClient.getApi().generateImage(
-                            type = "换衣_蒙版",
-                            imageUrl = fullUrl,
-                            thumbnailUrl = f.thumbnail_url.toString(),
-                            args = emptyMap()
+                            args = params
                         )
                     }
                     submitted = true
@@ -92,70 +70,11 @@ suspend fun performNudeGeneration(
 
     // 🚀 在循环结束后只弹一次
     if (!creativeMode && submitted) {
-        Toast.makeText(context, "换衣任务已提交", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "脱衣任务已提交", Toast.LENGTH_SHORT).show()
     }
 
     clearSelection()
     refreshFolder()
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun NudeModeBottomSheet(
-    maskEnabled: Boolean,
-    onDismiss: () -> Unit,
-    onMaskModeClick: () -> Unit,
-    onCreativeModeClick: () -> Unit
-) {
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(
-            skipPartiallyExpanded = true
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 24.dp)
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                if (maskEnabled) {
-                    Button(
-                        onClick = onMaskModeClick,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("蒙版模式")
-                    }
-                }
-
-                Button(
-                    onClick = onCreativeModeClick,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xffb3424a)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("创意模式")
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-        }
-    }
 }
 
 
