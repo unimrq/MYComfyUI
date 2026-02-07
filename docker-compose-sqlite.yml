@@ -1,0 +1,61 @@
+version: "3.8"
+
+services:
+  my-comfyui-server:
+    image: unimrq/my-comfyui-server
+    container_name: my-comfyui-server
+
+    # =========================
+    # ⚠️【修改】对外访问端口
+    # =========================
+    ports:
+      - "58000:8000"
+
+    volumes:
+      # =========================
+      # ❗【修改】图片 / 资源目录
+      # =========================
+      - ./Photos:/app/Photos
+
+      # ⚠️【可选挂载】ComfyUI工作流目录
+      - ./workflows:/app/workflows
+
+      # ⚠️【可选挂载】提示词配置文件
+      - ./prompts.json:/app/prompts.json
+
+    environment:
+      # =========================
+      # ❗【修改】ComfyUI实际运行地址
+      # =========================
+      COMFYUI_SERVER: 127.0.0.1:8188
+
+      ROOT_DIR: /app/Photos
+      TEMP_DIR: /app/temp
+
+      # =========================
+      # ❗【修改】数据库连接信息
+      # =========================
+      DB_TYPE: sqlite
+
+      # =========================
+      # ❗【修改】应用密钥
+      # =========================
+      APP_SECRET: change_me_app_secret
+
+      TZ: Asia/Shanghai
+
+    command: >
+      bash -c "uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 1
+      --loop uvloop
+      --http httptools
+      --proxy-headers
+      --log-level info"
+
+    restart: unless-stopped
+
+
+volumes:
+  db_data:
