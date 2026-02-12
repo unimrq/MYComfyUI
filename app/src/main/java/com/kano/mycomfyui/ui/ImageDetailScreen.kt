@@ -493,12 +493,12 @@ fun ImageDetailScreen(
                                         dragYAddAble = false
                                     } else {
                                         offset += pan / newScale
-                                        scope.launch {
-                                            offsetAnim.snapTo(offset)
-                                            offsetAnim.animateTo(Offset.Zero, animationSpec = tween(200, easing = FastOutSlowInEasing)) {
-                                                offset = value
-                                            }
-                                        }
+//                                        scope.launch {
+//                                            offsetAnim.snapTo(offset)
+//                                            offsetAnim.animateTo(Offset.Zero, animationSpec = tween(200, easing = FastOutSlowInEasing)) {
+//                                                offset = value
+//                                            }
+//                                        }
                                     }
                                 }
                             }
@@ -531,6 +531,20 @@ fun ImageDetailScreen(
                         while (true) {
                             val event = awaitPointerEvent()
                             if (event.changes.all { !it.pressed }) {
+                                if (!isCloseTriggered && scale == 1f) {
+                                    scope.launch {
+                                        offsetAnim.snapTo(offset)
+                                        offsetAnim.animateTo(
+                                            Offset.Zero,
+                                            animationSpec = tween(
+                                                durationMillis = 200,
+                                                easing = FastOutSlowInEasing
+                                            )
+                                        ) {
+                                            offset = value
+                                        }
+                                    }
+                                }
                                 if (isCloseTriggered && !isClosing) {
                                     isClosing = true
                                     onRequestClose()
@@ -621,6 +635,7 @@ fun ImageDetailScreen(
 
                     LaunchedEffect(imagePath) {
                         scale = 1f
+                        offset = Offset.Zero
                     }
 
                     Box(

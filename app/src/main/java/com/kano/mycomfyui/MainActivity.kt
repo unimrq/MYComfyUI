@@ -68,6 +68,7 @@ import com.kano.mycomfyui.network.ServerConfig
 import com.kano.mycomfyui.ui.AlbumScreen
 import com.kano.mycomfyui.ui.AddressSettingScreen
 import com.kano.mycomfyui.ui.FunctionSettingScreen
+import com.kano.mycomfyui.ui.PerspectiveScreen
 import com.kano.mycomfyui.ui.PromptAddScreen
 import com.kano.mycomfyui.ui.PromptEditScreen
 import com.kano.mycomfyui.ui.PromptListScreen
@@ -248,6 +249,10 @@ class MainActivity : ComponentActivity() {
 
                         composable("qwen") {
                             QwenSettingScreen()
+                        }
+
+                        composable ("image_perspective") {
+                            PerspectiveScreen(navController)
                         }
 
 

@@ -28,6 +28,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -120,10 +123,8 @@ fun EditImageSheet(
         mutableStateOf(prefs.get("denoise", "0.85"))   // 0~1
     }
 
-    var isPortrait by remember {
-        mutableStateOf(
-            prefs.get("isPortrait", "true").toBoolean()
-        )
+    var screenMode by remember {
+        mutableStateOf(prefs.get("screenMode", "portrait"))
     }
 
     var qwenModel by remember {
@@ -194,13 +195,13 @@ fun EditImageSheet(
             }
 
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 64.dp),
+                columns = GridCells.Fixed(5),
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 412.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp)
+                contentPadding = PaddingValues(horizontal = 0.dp)
             ) {
                 items(displayItems) { item ->
                     val selected = selectedItems.contains(item)
@@ -240,32 +241,44 @@ fun EditImageSheet(
                 )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = isPortrait,
-                    onClick = {
-                        isPortrait = true
-                        prefs.put("isPortrait", "true")
+            SingleChoiceSegmentedButtonRow {
 
+                val options = listOf(
+                    "portrait" to "竖屏",
+                    "original" to "原图",
+                    "landscape" to "横屏"
+                    )
+
+                options.forEachIndexed { index, (value, label) ->
+
+                    SegmentedButton(
+                        selected = screenMode == value,
+                        onClick = {
+                            screenMode = value
+                            prefs.put("screenMode", value)
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = options.size
+                        ),
+
+                        // 👇 关键：自定义颜色
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = MaterialTheme.colorScheme.primary,
+                            activeContentColor = Color.White,
+                            inactiveContainerColor = Color.Transparent,
+                            inactiveContentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+
+                        // 👇 关键：去掉 icon
+                        icon = {}
+                    ) {
+                        Text(label)
                     }
-                )
-                Text(
-                    text = "竖屏",
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-
-                RadioButton(
-                    selected = !isPortrait,
-                    onClick = {
-                        isPortrait = false
-                        prefs.put("isPortrait", "false")
-
-                    }
-                )
-                Text(text = "横屏")
+                }
             }
+
+
 
             Button(
                 onClick = {
@@ -275,10 +288,20 @@ fun EditImageSheet(
                             return@Button
                         }
 
-                        val (finalWidth, finalHeight) = if (isPortrait) {
+                        val (finalWidth, finalHeight) = if (screenMode == "portrait") {
                             width.ifBlank { "960" } to height.ifBlank { "1440" }
-                        } else {
+                        } else if (screenMode == "landscape") {
                             width2.ifBlank { "1440" } to height2.ifBlank { "960" }
+                        } else {
+                            "0" to "0"
+                        }
+
+                        val tagText = selectedItems.joinToString(" ") { it.text }
+
+                        val finalText = if (tagText.isNotBlank()) {
+                            "$promptText，$tagText"
+                        } else {
+                            promptText
                         }
 
                         val params = mapOf(
@@ -289,7 +312,7 @@ fun EditImageSheet(
                             "steps" to steps.ifBlank { "4" },
                             "width" to finalWidth,
                             "height" to finalHeight,
-                            "text" to promptText
+                            "text" to finalText
                         )
 
                         scope.launch {
@@ -316,10 +339,12 @@ fun EditImageSheet(
                             return@Button
                         }
 
-                        val (finalWidth, finalHeight) = if (isPortrait) {
+                        val (finalWidth, finalHeight) = if (screenMode == "portrait") {
                             width.ifBlank { "960" } to height.ifBlank { "1440" }
-                        } else {
+                        } else if (screenMode == "landscape") {
                             width2.ifBlank { "1440" } to height2.ifBlank { "960" }
+                        } else {
+                            "0" to "0"
                         }
 
                         // ---- 发送时：累计 tag 使用次数 ----
@@ -337,6 +362,12 @@ fun EditImageSheet(
 
                         scope.launch {
                             selectedItems.forEach { prompt ->
+                                val finalText = if (promptText.isNotBlank()) {
+                                    promptText + "，" + prompt.text
+                                } else {
+                                    prompt.text
+                                }
+
                                 val params = mapOf(
                                     "denoise" to denoise.ifBlank { "0.85" },
                                     "qwen_model" to qwenModel.ifBlank { "Qwen-Rapid-AIO-NSFW-v19.safetensors" },
@@ -345,8 +376,10 @@ fun EditImageSheet(
                                     "steps" to steps.ifBlank { "4" },
                                     "width" to finalWidth,
                                     "height" to finalHeight,
-                                    "text" to prompt.text
+                                    "text" to finalText,
+                                    "prompt_title" to prompt.title
                                 )
+
 
                                 imageUrls.forEachIndexed { index, url ->
                                     try {
@@ -395,7 +428,7 @@ fun TinyTag(
     useCount: Int,
     onClick: () -> Unit
 ) {
-    val maxCount = 10f
+    val maxCount = 30f
     val fraction = (useCount / maxCount).coerceIn(0f, 1f)
 
     val baseColor = MaterialTheme.colorScheme.surfaceVariant
@@ -409,7 +442,7 @@ fun TinyTag(
         modifier = Modifier
             .background(bgColor, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

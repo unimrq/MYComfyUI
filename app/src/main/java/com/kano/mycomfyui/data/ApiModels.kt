@@ -10,13 +10,14 @@ data class FileInfo(
     val thumbnail_url: String? = "",
     val file_url: String? = "",
     val date: String? = "",
+    val width: String? = "",
+    val height: String? = ""
 ) {
     val net_url: String?
         get() = file_url?.let { "${ServerConfig.baseUrl}$it" }
     val thumb_url: String?
         get() = thumbnail_url?.let { "${ServerConfig.baseUrl}$it" }
 }
-
 
 data class FolderContent(
     val parent: FileInfo,

@@ -88,10 +88,8 @@ fun QwenSettingScreen(
         )
     }
 
-    var isPortrait by remember {
-        mutableStateOf(
-            prefs.get("isPortrait", "true").toBoolean()
-        )
+    var screenMode by remember {
+        mutableStateOf(prefs.get("screenMode", "portrait"))
     }
 
     var denoise by remember {
@@ -230,7 +228,7 @@ fun QwenSettingScreen(
                         color = Color.Black
                     )
 
-                    if (isPortrait) {
+                    if (screenMode == "portrait") {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = "当前为竖屏",
@@ -291,7 +289,7 @@ fun QwenSettingScreen(
                         color = Color.Black
                     )
 
-                    if (!isPortrait) {
+                    if (screenMode == "landscape") {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = "当前为竖屏",

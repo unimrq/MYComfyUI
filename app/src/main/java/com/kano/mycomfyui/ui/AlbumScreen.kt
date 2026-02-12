@@ -44,6 +44,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -106,6 +108,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -167,7 +170,6 @@ fun AlbumScreen(
      */
 
     val scope = rememberCoroutineScope()
-
     val context = LocalContext.current
     var selectedFileForMenu by remember { mutableStateOf<FileInfo?>(null) }
     var confirmDeleteDialogVisible by remember { mutableStateOf(false) }
@@ -194,6 +196,7 @@ fun AlbumScreen(
     }
     var progressVisible by remember { mutableStateOf(false) }
     var currentFileName by remember { mutableStateOf("") }
+    var uploadIndex by remember { mutableStateOf(0) }
     var totalCount by remember { mutableStateOf(0) }
     var blankPressed by remember { mutableStateOf(false) }
 
@@ -244,6 +247,9 @@ fun AlbumScreen(
     var clickedThumbBounds by remember { mutableStateOf<ImageBounds?>(null) }
     val visibleCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() } // 可见图片位置
 
+    // 透视模式
+    var perspectiveMode by remember { mutableStateOf(false) }
+
     /**
      * 函数区
      */
@@ -288,7 +294,8 @@ fun AlbumScreen(
             viewModel.updateFolderContent(
                 content = cached,
                 currentPath = requestedPath,
-                mode = FolderViewModel.ContentUpdateMode.REFRESH
+                mode = FolderViewModel.ContentUpdateMode.REFRESH,
+                perspectiveMode = perspectiveMode
             )
         }
 
@@ -301,7 +308,8 @@ fun AlbumScreen(
                 viewModel.updateFolderContent(
                     content = serverContent,
                     currentPath = requestedPath,
-                    mode = FolderViewModel.ContentUpdateMode.REFRESH
+                    mode = FolderViewModel.ContentUpdateMode.REFRESH,
+                    perspectiveMode = perspectiveMode
                 )
 
                 saveFolderCache(requestedPath, serverContent)
@@ -386,7 +394,7 @@ fun AlbumScreen(
         uris: List<Uri>
     ) {
         if (uris.isEmpty()) return
-
+        uploadIndex = 1
         totalCount = uris.size
         progressVisible = true
 
@@ -394,8 +402,8 @@ fun AlbumScreen(
             uris.asReversed().forEach { uri ->
                 currentFileName =
                     uri.lastPathSegment ?: "image"
-
                 uploadImageFromUri(uri)
+                uploadIndex += 1
             }
         } catch (e: Exception) {
             Toast.makeText(
@@ -674,6 +682,17 @@ fun AlbumScreen(
                                         onClick = {
                                             expanded = false
                                             navController.navigate("taskManage")
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text(if (!perspectiveMode) "原始图片" else "全部图片") },
+                                        onClick = {
+                                            perspectiveMode = !perspectiveMode
+                                            scope.launch {
+                                                refreshFolder(uiState.currentPath)
+                                            }
+                                            expanded = false
                                         }
                                     )
 
@@ -1520,7 +1539,7 @@ fun AlbumScreen(
         visible = progressVisible,
         title = "正在上传",
         fileName = currentFileName,
-        currentIndex = uiState.currentIndex,
+        currentIndex = uploadIndex,
         totalCount = totalCount,
     )
 
@@ -1568,59 +1587,44 @@ fun AlbumScreen(
                 shadowElevation = 32.dp,     // 提升阴影
                 tonalElevation = 8.dp       // 细腻分层
             ) {
-                Row(
+                val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+                val itemWidth = screenWidth / 5
+                LazyRow(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .padding(vertical = 0.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+
                     if (cutList.isEmpty()) {
                         // --- 换衣 ---
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.clothes),
-                            tint = Color.Black,
-                            label = "脱衣",
-                            contentDescription = "脱衣",
-                            iconSize = 25.dp
-                        ) {
-                            if (uiState.selectedPaths.isNotEmpty()) {
-                                showNudeSheet = true
-                            } else {
-                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-
-                        // --- 修图 ---
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.picture),
-                            tint = Color.Black,
-                            label = "修图",
-                            contentDescription = "修图"
-                        ) {
-                            if (uiState.selectedPaths.isNotEmpty()) {
-                                generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
-                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
-                                }
-                                generateThumbnailUrls = uiState.selectedPaths.mapNotNull { path ->
-                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
-                                }
-
-                                showEditSheet = true  // ✅ 弹出修图界面
-                            } else {
-                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
-                            }
-                            multiSelectMode = false
-                        }
-
-                        if (videoEnabled) {
-                            // --- 动图 ---
+                        item {
                             IconActionButton(
-                                iconPainter = painterResource(id = R.drawable.video),
+                                iconPainter = painterResource(id = R.drawable.clothes),
                                 tint = Color.Black,
-                                label = "动图",
-                                contentDescription = "动图",
-                                iconSize = 26.dp
+                                label = "脱衣",
+                                contentDescription = "脱衣",
+                                iconSize = 20.dp,
+                                itemWidth = itemWidth,
                             ) {
+                                if (uiState.selectedPaths.isNotEmpty()) {
+                                    showNudeSheet = true
+                                } else {
+                                    Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        item {
+                            IconActionButton(
+                                iconPainter = painterResource(id = R.drawable.picture),
+                                tint = Color.Black,
+                                label = "修图",
+                                contentDescription = "修图",
+                                iconSize = 22.dp,
+                                itemWidth = itemWidth,
+                                ) {
                                 if (uiState.selectedPaths.isNotEmpty()) {
                                     generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
                                         folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
@@ -1629,179 +1633,318 @@ fun AlbumScreen(
                                         folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
                                     }
 
-                                    showGenerateSheet = true
+                                    showEditSheet = true  // ✅ 弹出修图界面
                                 } else {
                                     Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
                                 }
                                 multiSelectMode = false
                             }
                         }
-                    }
 
-                    // --- 剪切 / 粘贴 ---
-                    if (uiState.previewPath?.isNotEmpty() != true){
-                        IconActionButton(
-                            iconPainter = painterResource(
-                                id = if (cutList.isEmpty()) R.drawable.cut else R.drawable.paste
-                            ),
-                            tint = Color.Black,
-                            label = if (cutList.isEmpty()) "剪切" else "粘贴",
-                            contentDescription = if (cutList.isEmpty()) "剪切" else "粘贴",
-                            iconSize = if (cutList.isEmpty()) 28.dp else 26.dp
-                        ) {
-                            if (cutList.isEmpty()) {
-                                // ---------------------------------------
-                                //             执行“剪切”
-                                // ---------------------------------------
-                                if (uiState.selectedPaths.isEmpty()) {
-                                    Toast.makeText(context, "未选择任何图片", Toast.LENGTH_SHORT).show()
+                        item {
+                            IconActionButton(
+                                iconPainter = painterResource(id = R.drawable.erase),
+                                tint = Color.Black,
+                                label = "透视",
+                                contentDescription = "透视",
+                                iconSize = 22.dp,
+                                itemWidth = itemWidth,
+                                ) {
+
+                                val selectedPaths = uiState.selectedPaths
+
+                                // ✅ 1️⃣ 必须选中两张
+                                if (selectedPaths.size != 2) {
+                                    Toast.makeText(context, "请选择两张图片", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
-                                // 存储 file_path 而不是 file_url
-                                cutList = uiState.selectedPaths.mapNotNull { path ->
-                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.path
-                                }
-                                cutSourceDir = uiState.currentPath
-
-                                Toast.makeText(context, "已剪切 ${cutList.size} 项", Toast.LENGTH_SHORT).show()
-                                viewModel.clearSelection()
-                                multiSelectMode = false
-                            } else {
-                                // ---------------------------------------
-                                //             执行“粘贴”
-                                // ---------------------------------------
-                                val targetDir = uiState.currentPath
-//                            Log.d("MoveFile", cutList.toString())
-                                if (targetDir == cutSourceDir) {
-                                    Toast.makeText(context, "目标文件夹与原位置相同", Toast.LENGTH_SHORT).show()
-                                    return@IconActionButton
-                                }
-
-                                scope.launch {
-                                    cutList.forEach { fileUrl ->
-                                        try {
-                                            val src = fileUrl
-                                            val dest = targetDir
-                                            RetrofitClient.getApi().moveFile(src, dest)
-
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                            Toast.makeText(context, "移动失败: $fileUrl", Toast.LENGTH_SHORT).show()
-                                        }
+                                // 找到对应的 FileInfo
+                                val selectedFiles = selectedPaths.mapNotNull { path ->
+                                    folderContent?.files?.find {
+                                        it.file_url == path || it.path == path
                                     }
-
-                                    // 清空剪切板
-                                    cutList = emptyList()
-                                    cutSourceDir = ""
-
-                                    Toast.makeText(context, "已完成移动", Toast.LENGTH_SHORT).show()
-
-                                    // 刷新当前文件夹
-                                    refreshFolder(uiState.currentPath)
-
-                                    multiSelectMode = false
                                 }
+
+                                if (selectedFiles.size != 2) {
+                                    Toast.makeText(context, "文件信息异常", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
+
+                                val file1 = selectedFiles[0]
+                                val file2 = selectedFiles[1]
+
+                                Log.d(
+                                    "PerspectiveCheck",
+                                    "${file1.name}: ${file1.width} x ${file1.height}, " +
+                                            "${file2.name}: ${file2.width} x ${file2.height}"
+                                )
+
+                                val w1Str = file1.width
+                                val h1Str = file1.height
+                                val w2Str = file2.width
+                                val h2Str = file2.height
+
+                                if (file1.width.isNullOrBlank() ||
+                                    file1.height.isNullOrBlank() ||
+                                    file2.width.isNullOrBlank() ||
+                                    file2.height.isNullOrBlank()
+                                ) {
+                                    Toast.makeText(context, "图片分辨率数据为空", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
+
+
+                                val w1 = w1Str.toIntOrNull()
+                                val h1 = h1Str.toIntOrNull()
+                                val w2 = w2Str.toIntOrNull()
+                                val h2 = h2Str.toIntOrNull()
+
+                                if (w1 == null || h1 == null || w2 == null || h2 == null) {
+                                    Toast.makeText(context, "图片分辨率格式异常", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
+
+                                val widthDiff = kotlin.math.abs(w1 - w2)
+                                val heightDiff = kotlin.math.abs(h1 - h2)
+
+                                if (widthDiff > 20 || heightDiff > 20) {
+                                    Toast.makeText(context, "两张图片分辨率必须一致", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
+
+                                navController.currentBackStackEntry
+                                    ?.savedStateHandle
+                                    ?.set("perspective_files", selectedFiles)
+
+                                navController.navigate("image_perspective")
+
+                                multiSelectMode = false
                             }
                         }
 
 
+                        item {
+                            IconActionButton(
+                                iconPainter = painterResource(id = R.drawable.scale),
+                                tint = Color.Black,
+                                label = "放大",
+                                contentDescription = "放大",
+                                iconSize = 23.dp,
+                                itemWidth = itemWidth,
+                            ) {
+
+                            }
+                        }
+
+                        if (videoEnabled) {
+                            // --- 动图 ---
+                            item {
+                                IconActionButton(
+                                    iconPainter = painterResource(id = R.drawable.video),
+                                    tint = Color.Black,
+                                    label = "动图",
+                                    contentDescription = "动图",
+                                    iconSize = 20.dp,
+                                    itemWidth = itemWidth,
+                                ) {
+                                    if (uiState.selectedPaths.isNotEmpty()) {
+                                        generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
+                                            folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
+                                        }
+                                        generateThumbnailUrls = uiState.selectedPaths.mapNotNull { path ->
+                                            folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
+                                        }
+
+                                        showGenerateSheet = true
+                                    } else {
+                                        Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
+                                    }
+                                    multiSelectMode = false
+                                }
+                            }
+
+                        }
+                    }
+
+                    // --- 剪切 / 粘贴 ---
+                    if (uiState.previewPath?.isNotEmpty() != true){
+                        item {
+                            IconActionButton(
+                                iconPainter = painterResource(
+                                    id = if (cutList.isEmpty()) R.drawable.cut else R.drawable.paste
+                                ),
+                                tint = Color.Black,
+                                label = if (cutList.isEmpty()) "剪切" else "粘贴",
+                                contentDescription = if (cutList.isEmpty()) "剪切" else "粘贴",
+                                iconSize = if (cutList.isEmpty()) 23.dp else 20.dp,
+                                itemWidth = itemWidth,
+                            ) {
+                                if (cutList.isEmpty()) {
+                                    // ---------------------------------------
+                                    //             执行“剪切”
+                                    // ---------------------------------------
+                                    if (uiState.selectedPaths.isEmpty()) {
+                                        Toast.makeText(context, "未选择任何图片", Toast.LENGTH_SHORT).show()
+                                        return@IconActionButton
+                                    }
+
+                                    // 存储 file_path 而不是 file_url
+                                    cutList = uiState.selectedPaths.mapNotNull { path ->
+                                        folderContent?.files?.find { it.file_url == path || it.path == path }?.path
+                                    }
+                                    cutSourceDir = uiState.currentPath
+
+                                    Toast.makeText(context, "已剪切 ${cutList.size} 项", Toast.LENGTH_SHORT).show()
+                                    viewModel.clearSelection()
+                                    multiSelectMode = false
+                                } else {
+                                    // ---------------------------------------
+                                    //             执行“粘贴”
+                                    // ---------------------------------------
+                                    val targetDir = uiState.currentPath
+//                            Log.d("MoveFile", cutList.toString())
+                                    if (targetDir == cutSourceDir) {
+                                        Toast.makeText(context, "目标文件夹与原位置相同", Toast.LENGTH_SHORT).show()
+                                        return@IconActionButton
+                                    }
+
+                                    scope.launch {
+                                        cutList.forEach { fileUrl ->
+                                            try {
+                                                val src = fileUrl
+                                                val dest = targetDir
+                                                RetrofitClient.getApi().moveFile(src, dest)
+
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                Toast.makeText(context, "移动失败: $fileUrl", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+
+                                        // 清空剪切板
+                                        cutList = emptyList()
+                                        cutSourceDir = ""
+
+                                        Toast.makeText(context, "已完成移动", Toast.LENGTH_SHORT).show()
+
+                                        // 刷新当前文件夹
+                                        refreshFolder(uiState.currentPath)
+
+                                        multiSelectMode = false
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     if (cutList.isEmpty()) {
                         // --- 下载 ---
                         // 在 AlbumScreen 内
-                        var downloadDialogVisible by remember { mutableStateOf(false) }
-                        var currentDownloadingFile by remember { mutableStateOf("") }
-                        var currentIndex by remember { mutableIntStateOf(0) }
-                        val totalCount = uiState.selectedPaths.size
+                        item {
+                            var downloadDialogVisible by remember { mutableStateOf(false) }
+                            var currentDownloadingFile by remember { mutableStateOf("") }
+                            var currentIndex by remember { mutableIntStateOf(0) }
+                            val totalCount = uiState.selectedPaths.size
+                            IconActionButton(
+                                iconPainter = painterResource(id = R.drawable.download),
+                                tint = Color.Black,
+                                label = "下载",
+                                contentDescription = "下载",
+                                iconSize = 20.dp,
+                                itemWidth = itemWidth,
+                            ) {
+                                if (uiState.selectedPaths.isNotEmpty()) {
+                                    scope.launch {
+                                        downloadDialogVisible = true
+                                        currentIndex = 0
+                                        uiState.selectedPaths.forEachIndexed { index, imagePath ->
+                                            currentIndex = index + 1
+                                            currentDownloadingFile = imagePath.substringAfterLast("/")
+                                            try {
+                                                val fullUrl = "${ServerConfig.baseUrl}$imagePath"
+                                                val filename = imagePath.substringAfterLast("/")
 
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.download),
-                            tint = Color.Black,
-                            label = "下载",
-                            contentDescription = "下载",
-                            iconSize = 24.dp
-                        ) {
-                            if (uiState.selectedPaths.isNotEmpty()) {
-                                scope.launch {
-                                    downloadDialogVisible = true
-                                    currentIndex = 0
-                                    uiState.selectedPaths.forEachIndexed { index, imagePath ->
-                                        currentIndex = index + 1
-                                        currentDownloadingFile = imagePath.substringAfterLast("/")
-                                        try {
-                                            val fullUrl = "${ServerConfig.baseUrl}$imagePath"
-                                            val filename = imagePath.substringAfterLast("/")
+                                                withContext(Dispatchers.IO) {
+                                                    val request = okhttp3.Request.Builder().url(fullUrl).build()
+                                                    val response = okhttp3.OkHttpClient().newCall(request).execute()
+                                                    if (!response.isSuccessful) throw Exception("下载失败")
 
-                                            withContext(Dispatchers.IO) {
-                                                val request = okhttp3.Request.Builder().url(fullUrl).build()
-                                                val response = okhttp3.OkHttpClient().newCall(request).execute()
-                                                if (!response.isSuccessful) throw Exception("下载失败")
-
-                                                response.body.byteStream().use { inputStream ->
-                                                    val savedUri = saveFileToGallery(context, inputStream, filename)
-                                                    withContext(Dispatchers.Main) {
-                                                        if (savedUri != null) {
-                                            //                                                        Toast.makeText(context, "已保存：$filename", Toast.LENGTH_SHORT).show()
-                                                        } else {
-                                                            Toast.makeText(context, "保存失败：$filename", Toast.LENGTH_SHORT).show()
+                                                    response.body.byteStream().use { inputStream ->
+                                                        val savedUri = saveFileToGallery(context, inputStream, filename)
+                                                        withContext(Dispatchers.Main) {
+                                                            if (savedUri != null) {
+                                                                //                                                        Toast.makeText(context, "已保存：$filename", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "保存失败：$filename", Toast.LENGTH_SHORT).show()
+                                                            }
                                                         }
                                                     }
+                                                    response.close()
                                                 }
-                                                response.close()
-                                            }
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "下载出错: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(context, "下载出错: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                }
                                             }
                                         }
+                                        downloadDialogVisible = false
+                                        multiSelectMode = false
                                     }
-                                    downloadDialogVisible = false
-                                    multiSelectMode = false
+                                } else {
+                                    Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
                                 }
-                            } else {
-                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
                             }
+
+                            ProgressDialog(
+                                visible = downloadDialogVisible,
+                                title = "正在下载",
+                                fileName = currentDownloadingFile,
+                                currentIndex = currentIndex,
+                                totalCount = totalCount,
+                            )
                         }
 
-                        ProgressDialog(
-                            visible = downloadDialogVisible,
-                            title = "正在下载",
-                            fileName = currentDownloadingFile,
-                            currentIndex = currentIndex,
-                            totalCount = totalCount,
-                        )
                     }
 
                     // --- 删除 ---
                     if (cutList.isEmpty()){
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.delete),
-                            tint = Color.Black,
-                            label = "删除",
-                            contentDescription = "删除"
-                        ) {
-                            if (uiState.selectedPaths.isNotEmpty()) {
-                                showDeleteDialog = true
-                            } else {
-                                Toast.makeText(context, "没有可删除的文件", Toast.LENGTH_SHORT).show()
+                        item {
+                            IconActionButton(
+                                iconPainter = painterResource(id = R.drawable.delete),
+                                tint = Color.Black,
+                                label = "删除",
+                                contentDescription = "删除",
+                                iconSize = 22.dp,
+                                itemWidth = itemWidth,
+                            ) {
+                                if (uiState.selectedPaths.isNotEmpty()) {
+                                    showDeleteDialog = true
+                                } else {
+                                    Toast.makeText(context, "没有可删除的文件", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
-                    } else {
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.delete),
-                            tint = Color.Black,
-                            label = "清空",
-                            contentDescription = "清空"
-                        ) {
-                            // 清空剪切板
-                            cutList = emptyList()
-                            cutSourceDir = ""
 
-                            Toast.makeText(context, "已清空", Toast.LENGTH_SHORT).show()
+                    } else {
+                        item {
+                            IconActionButton(
+                                iconPainter = painterResource(id = R.drawable.delete),
+                                tint = Color.Black,
+                                label = "清空",
+                                contentDescription = "清空",
+                                iconSize = 22.dp,
+                                itemWidth = itemWidth,
+                            ) {
+                                // 清空剪切板
+                                cutList = emptyList()
+                                cutSourceDir = ""
+
+                                Toast.makeText(context, "已清空", Toast.LENGTH_SHORT).show()
+                            }
                         }
+
                     }
 
 
@@ -1929,15 +2072,17 @@ fun IconActionButton(
     tint: Color = Color.Unspecified,
     label: String,
     contentDescription: String = label,
-    iconSize: Dp = 28.dp,
-    iconBoxHeight: Dp = 20.dp, // ✅ 固定图标区域高度
-    onClick: () -> Unit
+    iconSize: Dp = 18.dp,
+    iconBoxHeight: Dp = 24.dp,
+    itemWidth: Dp,
+    onClick: () -> Unit,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clickable(onClick = onClick)
-            .padding(8.dp)
+            .padding(bottom = 8.dp)
+            .width(itemWidth)
     ) {
         // ✅ 固定图标区域，不随图标大小改变
         Box(
@@ -2020,7 +2165,7 @@ fun GridWithVerticalScrollHandleOverlay(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .padding(top = gridPaddingTop, bottom = gridPaddingBottom) // 👈 上下边距
+                .padding(top = gridPaddingTop, bottom = gridPaddingBottom)
                 .onGloballyPositioned { coords ->
                     gridWidthPx = coords.size.width.toFloat()
                 },
@@ -2140,8 +2285,6 @@ fun GridWithVerticalScrollHandleOverlay(
         }
     }
 }
-
-
 
 
 @Composable
