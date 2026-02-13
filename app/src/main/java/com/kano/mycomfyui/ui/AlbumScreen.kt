@@ -59,6 +59,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -152,6 +153,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.text.Collator
+import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -248,8 +250,15 @@ fun AlbumScreen(
     val visibleCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() } // 可见图片位置
 
     // 透视模式
-    var perspectiveMode by remember { mutableStateOf(false) }
+    val modePrefs = context.getSharedPreferences("mode_cache", Context.MODE_PRIVATE)
 
+    var fileMode by remember {
+        mutableStateOf(
+            Mode.fromValue(
+                modePrefs.getString("file_mode", Mode.ALL.value)
+            )
+        )
+    }
     /**
      * 函数区
      */
@@ -295,7 +304,7 @@ fun AlbumScreen(
                 content = cached,
                 currentPath = requestedPath,
                 mode = FolderViewModel.ContentUpdateMode.REFRESH,
-                perspectiveMode = perspectiveMode
+                fileMode = fileMode
             )
         }
 
@@ -309,7 +318,7 @@ fun AlbumScreen(
                     content = serverContent,
                     currentPath = requestedPath,
                     mode = FolderViewModel.ContentUpdateMode.REFRESH,
-                    perspectiveMode = perspectiveMode
+                    fileMode = fileMode
                 )
 
                 saveFolderCache(requestedPath, serverContent)
@@ -533,6 +542,12 @@ fun AlbumScreen(
         }
     }
 
+    LaunchedEffect(fileMode) {
+        modePrefs.edit {
+            putString("file_mode", fileMode.value)
+        }
+    }
+
     BackHandler(enabled = true) {
         when {
             multiSelectMode -> {
@@ -625,35 +640,96 @@ fun AlbumScreen(
 
                         },
                         actions = {
+                            var currentToast by remember { mutableStateOf<Toast?>(null) }
+
                             Row(
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(-1.dp) // 👈 控制间距
                             ) {
-                                if (multiSelectMode) {
-                                    IconButton(onClick = {
-                                        val files = folderContent?.files.orEmpty()
-                                        val selectableCount = files.count { !it.is_dir }
-                                        if (uiState.selectedPaths.size == selectableCount) {
-                                            // 已全选 → 清空
-                                            viewModel.clearSelection()
-                                        } else {
-                                            // 未全选 → 全选
-                                            viewModel.selectAllFiles(files)
+                                IconButton(
+                                    onClick = {
+                                        fileMode = when (fileMode) {
+                                            Mode.ALL -> Mode.ORIGIN
+                                            Mode.ORIGIN -> Mode.NUDE
+                                            Mode.NUDE -> Mode.EDIT
+                                            Mode.EDIT -> Mode.ALL
                                         }
-                                    }) {
+
+                                        val modeText = when (fileMode) {
+                                            Mode.ALL -> "全部"
+                                            Mode.ORIGIN -> "原图"
+                                            Mode.NUDE -> "脱衣"
+                                            Mode.EDIT -> "修图"
+                                        }
+
+                                        // 🔥 关键：取消旧的 Toast
+                                        currentToast?.cancel()
+
+                                        currentToast = Toast.makeText(
+                                            context,
+                                            "当前模式: $modeText",
+                                            Toast.LENGTH_SHORT
+                                        )
+
+                                        currentToast?.show()
+
+                                        scope.launch {
+                                            refreshFolder(uiState.currentPath)
+                                        }
+                                    }
+                                ) {
+                                    Box {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.recovery),
+                                            contentDescription = "切换模式",
+                                            tint = topBarColor,
+                                            modifier = Modifier.height(20.dp)
+                                        )
+                                    }
+                                }
+
+                                if (multiSelectMode) {
+                                    IconButton(
+                                        onClick = {
+
+                                            val allFiles = folderContent?.files.orEmpty()
+                                            val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+                                            // ✅ 当前模式下可见文件
+                                            val visibleFiles = sortPreviewableFiles(
+                                                files = allFiles,
+                                                currentPath = uiState.currentPath,
+                                                dateFormat = dateFormat,
+                                                mode = fileMode
+                                            )
+
+                                            val selectableCount = visibleFiles.size
+
+                                            if (uiState.selectedPaths.size == selectableCount) {
+                                                // 已全选 → 清空
+                                                viewModel.clearSelection()
+                                            } else {
+                                                // 未全选 → 只选可见文件
+                                                viewModel.selectAllFiles(visibleFiles)
+                                            }
+                                        }
+                                    ) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = "全选",
-                                            tint = topBarColor
+                                            tint = topBarColor,
+                                            modifier = Modifier.height(24.dp).offset(x = 1.dp)
                                         )
                                     }
+
                                 } else {
                                     IconButton(onClick = {
                                         showAddSheet = true
                                     }) {
                                         Icon(
-                                            imageVector = Icons.Default.Add,
+                                            painter = painterResource(id = R.drawable.upload),
                                             contentDescription = "新增",
-                                            tint = topBarColor
+                                            tint = topBarColor,
+                                            modifier = Modifier.height(24.dp).offset(x = 1.dp),
                                         )
                                     }
                                 }
@@ -666,55 +742,48 @@ fun AlbumScreen(
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
                                         contentDescription = "更多",
-                                        tint = topBarColor
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = expanded,
-                                    onDismissRequest = { expanded = false },
-                                    modifier = Modifier
-                                        .width(90.dp)
-                                        .background(Color.White),
-                                ) {
+                                        tint = topBarColor,
+                                        )
 
-                                    DropdownMenuItem(
-                                        text = { Text("任务管理") },
-                                        onClick = {
-                                            expanded = false
-                                            navController.navigate("taskManage")
-                                        }
-                                    )
 
-                                    DropdownMenuItem(
-                                        text = { Text(if (!perspectiveMode) "原始图片" else "全部图片") },
-                                        onClick = {
-                                            perspectiveMode = !perspectiveMode
-                                            scope.launch {
-                                                refreshFolder(uiState.currentPath)
+                                    DropdownMenu(
+                                        expanded = expanded,
+                                        onDismissRequest = { expanded = false },
+                                        modifier = Modifier
+                                            .width(90.dp)
+                                            .background(Color.White),
+                                    ) {
+
+                                        DropdownMenuItem(
+                                            text = { Text("任务管理") },
+                                            onClick = {
+                                                expanded = false
+                                                navController.navigate("taskManage")
                                             }
-                                            expanded = false
-                                        }
-                                    )
+                                        )
 
-                                    DropdownMenuItem(
-                                        text = { Text("刷新页面") },
-                                        onClick = {
-                                            expanded = false
-                                            scope.launch {
-                                                RetrofitClient.getApi().refresh(uiState.currentPath)
-                                                refreshFolder(uiState.currentPath)
+                                        DropdownMenuItem(
+                                            text = { Text("刷新页面") },
+                                            onClick = {
+                                                expanded = false
+                                                scope.launch {
+                                                    RetrofitClient.getApi().refresh(uiState.currentPath)
+                                                    refreshFolder(uiState.currentPath)
+                                                }
                                             }
-                                        }
-                                    )
+                                        )
 
-                                    DropdownMenuItem(
-                                        text = { Text("设置") },
-                                        onClick = {
-                                            expanded = false
-                                            navController.navigate("settings")
-                                        }
-                                    )
+                                        DropdownMenuItem(
+                                            text = { Text("设置") },
+                                            onClick = {
+                                                expanded = false
+                                                navController.navigate("settings")
+                                            }
+                                        )
+                                    }
                                 }
+
+
                             }
                         },
                         colors = topAppBarColors(
@@ -1588,13 +1657,14 @@ fun AlbumScreen(
                 tonalElevation = 8.dp       // 细腻分层
             ) {
                 val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-                val itemWidth = screenWidth / 5
+                val itemWidth = screenWidth / 6
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 0.dp),
-                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+
                 ) {
 
                     if (cutList.isEmpty()) {
@@ -1605,7 +1675,7 @@ fun AlbumScreen(
                                 tint = Color.Black,
                                 label = "脱衣",
                                 contentDescription = "脱衣",
-                                iconSize = 20.dp,
+                                iconSize = 19.dp,
                                 itemWidth = itemWidth,
                             ) {
                                 if (uiState.selectedPaths.isNotEmpty()) {
@@ -1643,75 +1713,77 @@ fun AlbumScreen(
 
                         item {
                             IconActionButton(
-                                iconPainter = painterResource(id = R.drawable.erase),
+                                iconPainter = painterResource(id = R.drawable.layers),
                                 tint = Color.Black,
-                                label = "透视",
-                                contentDescription = "透视",
+                                label = "差分",
+                                contentDescription = "差分",
                                 iconSize = 22.dp,
                                 itemWidth = itemWidth,
                                 ) {
 
                                 val selectedPaths = uiState.selectedPaths
 
-                                // ✅ 1️⃣ 必须选中两张
-                                if (selectedPaths.size != 2) {
-                                    Toast.makeText(context, "请选择两张图片", Toast.LENGTH_SHORT).show()
+                                if (selectedPaths.size != 1) {
+                                    Toast.makeText(context, "请选择一张原图", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
-                                // 找到对应的 FileInfo
-                                val selectedFiles = selectedPaths.mapNotNull { path ->
-                                    folderContent?.files?.find {
-                                        it.file_url == path || it.path == path
-                                    }
+                                val selectedPath = selectedPaths.first()
+
+                                val originFile = folderContent?.files?.find {
+                                    it.file_url == selectedPath || it.path == selectedPath
                                 }
 
-                                if (selectedFiles.size != 2) {
+                                if (originFile == null) {
                                     Toast.makeText(context, "文件信息异常", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
-                                val file1 = selectedFiles[0]
-                                val file2 = selectedFiles[1]
+                                val baseName = originFile.name.substringBeforeLast(".")
 
-                                Log.d(
-                                    "PerspectiveCheck",
-                                    "${file1.name}: ${file1.width} x ${file1.height}, " +
-                                            "${file2.name}: ${file2.width} x ${file2.height}"
-                                )
+                                val matchedNudeFiles = folderContent.files.filter { file ->
+                                    file.name.startsWith("$baseName-脱衣-")
+                                }
 
-                                val w1Str = file1.width
-                                val h1Str = file1.height
-                                val w2Str = file2.width
-                                val h2Str = file2.height
-
-                                if (file1.width.isNullOrBlank() ||
-                                    file1.height.isNullOrBlank() ||
-                                    file2.width.isNullOrBlank() ||
-                                    file2.height.isNullOrBlank()
-                                ) {
-                                    Toast.makeText(context, "图片分辨率数据为空", Toast.LENGTH_SHORT).show()
+                                if (matchedNudeFiles.isEmpty()) {
+                                    Toast.makeText(context, "未找到匹配的脱衣图片", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
+                                val latestNudeFile = matchedNudeFiles.maxByOrNull { file ->
+                                    val timestampPart = file.name
+                                        .removePrefix("$baseName-脱衣-")
+                                        .substringBeforeLast(".")
 
-                                val w1 = w1Str.toIntOrNull()
-                                val h1 = h1Str.toIntOrNull()
-                                val w2 = w2Str.toIntOrNull()
-                                val h2 = h2Str.toIntOrNull()
+                                    timestampPart.toLongOrNull() ?: 0L
+                                }
+
+                                if (latestNudeFile == null) {
+                                    Toast.makeText(context, "脱衣图片时间格式异常", Toast.LENGTH_SHORT).show()
+                                    return@IconActionButton
+                                }
+
+                                val w1 = originFile.width?.toIntOrNull()
+                                val h1 = originFile.height?.toIntOrNull()
+                                val w2 = latestNudeFile.width?.toIntOrNull()
+                                val h2 = latestNudeFile.height?.toIntOrNull()
 
                                 if (w1 == null || h1 == null || w2 == null || h2 == null) {
                                     Toast.makeText(context, "图片分辨率格式异常", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
-                                val widthDiff = kotlin.math.abs(w1 - w2)
-                                val heightDiff = kotlin.math.abs(h1 - h2)
+                                val ratio1 = w1.toFloat() / h1
+                                val ratio2 = w2.toFloat() / h2
 
-                                if (widthDiff > 20 || heightDiff > 20) {
-                                    Toast.makeText(context, "两张图片分辨率必须一致", Toast.LENGTH_SHORT).show()
+                                val ratioDiff = kotlin.math.abs(ratio1 / ratio2 - 1f)
+
+                                if (ratioDiff > 0.02f) {
+                                    Toast.makeText(context, "图片分辨率差距过大", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
+
+                                val selectedFiles = listOf(originFile, latestNudeFile)
 
                                 navController.currentBackStackEntry
                                     ?.savedStateHandle
@@ -1720,22 +1792,23 @@ fun AlbumScreen(
                                 navController.navigate("image_perspective")
 
                                 multiSelectMode = false
-                            }
-                        }
-
-
-                        item {
-                            IconActionButton(
-                                iconPainter = painterResource(id = R.drawable.scale),
-                                tint = Color.Black,
-                                label = "放大",
-                                contentDescription = "放大",
-                                iconSize = 23.dp,
-                                itemWidth = itemWidth,
-                            ) {
 
                             }
                         }
+
+
+//                        item {
+//                            IconActionButton(
+//                                iconPainter = painterResource(id = R.drawable.scale),
+//                                tint = Color.Black,
+//                                label = "放大",
+//                                contentDescription = "放大",
+//                                iconSize = 23.dp,
+//                                itemWidth = itemWidth,
+//                            ) {
+//
+//                            }
+//                        }
 
                         if (videoEnabled) {
                             // --- 动图 ---
@@ -2081,7 +2154,7 @@ fun IconActionButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clickable(onClick = onClick)
-            .padding(bottom = 8.dp)
+            .padding(vertical = 8.dp)
             .width(itemWidth)
     ) {
         // ✅ 固定图标区域，不随图标大小改变

@@ -3,6 +3,7 @@ package com.kano.mycomfyui.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -35,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -125,6 +129,8 @@ fun NudeModeBottomSheet(
         mutableStateOf(prefs.get("height2", "960"))
     }
 
+    var promptText by remember { mutableStateOf("高质量，专业数码摄影，保持人脸一致性，保持肤色不变，保持构图不变，脱掉女生的所有衣物，不改变女生姿势") }
+    val focusRequester = remember { FocusRequester() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -132,6 +138,25 @@ fun NudeModeBottomSheet(
             skipPartiallyExpanded = true
         )
     ) {
+        Box(
+            modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+        ){
+            OutlinedTextField(
+                value = promptText,
+                onValueChange = { promptText = it },
+                label = { Text("请输入提示词") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .focusRequester(focusRequester),
+                maxLines = 5,
+                singleLine = false
+            )
+        }
+
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -209,6 +234,7 @@ fun NudeModeBottomSheet(
                         "steps" to steps.ifBlank { "4" },
                         "width" to finalWidth,
                         "height" to finalHeight,
+                        "text" to promptText
                     )
 
                     onCreativeModeClick(params)

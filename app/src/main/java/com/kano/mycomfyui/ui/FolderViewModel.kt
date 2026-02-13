@@ -10,11 +10,26 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 
+enum class Mode(val value: String) {
+
+    ALL("ALL"),          // 原逻辑
+    ORIGIN("ORIGIN"),    // 分组后取名称最短的一张
+    NUDE("NUDE"),        // 分组后取最短且名称含 "-脱衣"
+    EDIT("EDIT");        // 只取名称含 "-修图"
+
+    companion object {
+        fun fromValue(value: String?): Mode {
+            return entries.find { it.value == value } ?: ALL
+        }
+    }
+}
+
+
 fun sortPreviewableFiles(
     files: List<FileInfo>,
     currentPath: String,
     dateFormat: SimpleDateFormat,
-    perspectiveMode: Boolean
+    mode: Mode
 ): List<FileInfo> {
 
     fun FileInfo.isPreviewable(): Boolean =
@@ -25,7 +40,6 @@ fun sortPreviewableFiles(
     fun getCoreName(name: String): String {
         var base = name.substringBeforeLast(".")
         base = base.substringBefore("-脱衣")
-        base = base.substringBefore("-换衣")
         base = base.substringBefore("-修图")
         return base
     }
@@ -35,65 +49,78 @@ fun sortPreviewableFiles(
             dateFormat.parse(this.date)?.time ?: Long.MAX_VALUE
         }.getOrDefault(Long.MAX_VALUE)
 
-    // 假设 FileInfo 有 width 和 height 字段
-    fun FileInfo.sameResolution(other: FileInfo): Boolean =
-        this.width == other.width && this.height == other.height
-
     val validFiles = files
         .filter { !it.is_dir }
         .filter { it.isPreviewable() }
 
-    val isMp4Only =
-        validFiles.isNotEmpty() &&
-                validFiles.all { it.file_url?.endsWith(".mp4", true) == true }
+    // ===== 特殊情况：MP4 或 修图路径 =====
+    val isMp4Only = validFiles.isNotEmpty() &&
+            validFiles.all { it.file_url?.endsWith(".mp4", true) == true }
 
     if (isMp4Only || currentPath == "修图") {
         return validFiles.sortedByDescending { it.parseTime() }
     }
 
+    // ===== 统一分组（只算一次）=====
     val grouped = validFiles.groupBy { getCoreName(it.name) }
 
-    return if (!perspectiveMode) {
+    // ===== 原图顺序（权威顺序）=====
+    val originList = grouped
+        .mapNotNull { (_, group) ->
+            group.minByOrNull { it.name.length }
+        }
+        .sortedByDescending { it.parseTime() }
 
-        // 原逻辑
-        grouped
-            .toList()
-            .sortedByDescending { (_, group) ->
-                group.minOfOrNull { it.parseTime() } ?: Long.MAX_VALUE
-            }
-            .flatMap { (_, group) ->
-                group.sortedWith(
-                    compareBy<FileInfo> { it.parseTime() }
-                        .thenBy { it.name.lowercase() }
-                )
-            }
+    val originOrderMap = originList
+        .mapIndexed { index, file ->
+            getCoreName(file.name) to index
+        }
+        .toMap()
 
-    } else {
+    return when (mode) {
 
-        // 🔥 透视模式新规则
-        grouped
-            .mapNotNull { (_, group) ->
-
-                // 1️⃣ 至少两张
-                if (group.size < 2) return@mapNotNull null
-
-                // 2️⃣ 找最短 name 的图片
-                val shortest = group.minByOrNull { it.name.length } ?: return@mapNotNull null
-
-                // 3️⃣ 找包含 "-换衣" 的图片
-                val changeClothesList = group.filter { "-换衣" in it.name }
-                if (changeClothesList.isEmpty()) return@mapNotNull null
-
-                // 4️⃣ 是否存在同分辨率的 "-换衣"
-                val hasSameResolution = changeClothesList.any {
-                    it.sameResolution(shortest)
+        // ================================
+        Mode.ALL -> {
+            grouped
+                .toList()
+                .sortedByDescending { (_, group) ->
+                    group.minOfOrNull { it.parseTime() } ?: Long.MAX_VALUE
                 }
+                .flatMap { (_, group) ->
+                    group.sortedWith(
+                        compareBy<FileInfo> { it.parseTime() }
+                            .thenBy { it.name.lowercase() }
+                    )
+                }
+        }
 
-                if (hasSameResolution) shortest else null
-            }
-            .sortedByDescending { it.parseTime() }
+        // ================================
+        Mode.ORIGIN -> {
+            originList
+        }
+
+        // ================================
+        Mode.NUDE -> {
+            grouped
+                .mapNotNull { (_, group) ->
+                    group
+                        .filter { it.name.contains("-脱衣") }
+                        .minByOrNull { it.name.length }
+                }
+                .sortedBy { file ->
+                    originOrderMap[getCoreName(file.name)] ?: Int.MAX_VALUE
+                }
+        }
+
+        // ================================
+        Mode.EDIT -> {
+            validFiles
+                .filter { it.name.contains("-修图") }
+                .sortedByDescending { it.parseTime() }
+        }
     }
 }
+
 
 
 
@@ -209,13 +236,13 @@ class FolderViewModel : ViewModel() {
         content: FolderContent,
         currentPath: String,
         mode: ContentUpdateMode,
-        perspectiveMode: Boolean
+        fileMode: Mode
     ) {
         val files = sortPreviewableFiles(
             files = content.files,
             currentPath = currentPath,
             dateFormat = dateFormat,
-            perspectiveMode = perspectiveMode
+            mode = fileMode
         )
 
         _uiState.update {

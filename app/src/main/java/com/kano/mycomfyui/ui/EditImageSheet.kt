@@ -82,7 +82,7 @@ fun EditImageSheet(
     val context = LocalContext.current
     val prefs2 = remember { EditPrefs(context) }
 
-    var promptText by remember { mutableStateOf("") }
+    var promptText by remember { mutableStateOf("高质量，专业数码摄影，保持人脸一致性，保持肤色不变，") }
     val focusRequester = remember { FocusRequester() }
 
     // ---- 切换输入模式 ----

@@ -79,7 +79,6 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import kotlin.math.pow
 
-@OptIn(UnstableApi::class)
 @SuppressLint("RememberReturnType")
 @Composable
 fun CachedVideoPlayer(
@@ -148,11 +147,9 @@ fun CachedVideoPlayer(
 }
 
 
-@OptIn(UnstableApi::class)
 @SuppressLint("UnrememberedMutableState", "ConfigurationScreenWidthHeight",
     "UnnecessaryComposedModifier"
 )
-
 @Composable
 fun ImageDetailScreen(
     sortedFiles: List<FileInfo>,
@@ -773,7 +770,7 @@ fun ImageDetailScreen(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(end = 12.dp, top = 96.dp)
-                                    .size(32.dp).graphicsLayer { alpha = alpha1 }
+                                    .size(32.dp).graphicsLayer { alpha = 0f }
                             ) {
                                 Box(
                                     modifier = Modifier
