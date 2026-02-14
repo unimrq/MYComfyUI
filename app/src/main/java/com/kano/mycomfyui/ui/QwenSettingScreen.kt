@@ -124,6 +124,11 @@ fun QwenSettingScreen(
         mutableStateOf(prefs.get("height2", "960"))
     }
 
+    var prompt1 by remember { mutableStateOf(prefs.get("prompt1", "")) }
+
+    var prompt2 by remember { mutableStateOf(prefs.get("prompt2", "")) }
+
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -152,7 +157,8 @@ fun QwenSettingScreen(
                 onValueChange = {
                     qwenModel = it
                     prefs.put("qwenModel", it)
-                }
+                },
+                keyboardType = KeyboardType.Text
             )
 
             // === 降噪 + 步数 ===
@@ -199,7 +205,8 @@ fun QwenSettingScreen(
                         samplerName = it
                         prefs.put("samplerName", it)
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    keyboardType = KeyboardType.Text
                 )
 
                 ParamTextField(
@@ -209,7 +216,8 @@ fun QwenSettingScreen(
                         scheduler = it
                         prefs.put("scheduler", it)
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    keyboardType = KeyboardType.Text
                 )
             }
 
@@ -218,35 +226,13 @@ fun QwenSettingScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "竖屏分辨率",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(start = 16.dp),
-                        color = Color.Black
-                    )
-
-                    if (screenMode == "portrait") {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "当前为竖屏",
-                            tint = Color(0xFF3965B0),
-                            modifier = Modifier
-                                .padding(start = 6.dp)
-                                .size(16.dp)
-                        )
-                    }
-                }
-
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     ParamTextField(
-                        label = "宽度",
+                        label = "竖屏宽度",
                         value = width,
                         onValueChange = {
                             if (it.isEmpty() || it.toIntOrNull() != null) {
@@ -259,7 +245,7 @@ fun QwenSettingScreen(
                     )
 
                     ParamTextField(
-                        label = "高度",
+                        label = "竖屏高度",
                         value = height,
                         onValueChange = {
                             if (it.isEmpty() || it.toIntOrNull() != null) {
@@ -280,34 +266,11 @@ fun QwenSettingScreen(
             ) {
 
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "横屏分辨率",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(start = 16.dp),
-                        color = Color.Black
-                    )
-
-                    if (screenMode == "landscape") {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "当前为竖屏",
-                            tint = Color(0xFF3965B0),
-                            modifier = Modifier
-                                .padding(start = 6.dp)
-                                .size(16.dp)
-                        )
-                    }
-                }
-
-
-                Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     ParamTextField(
-                        label = "宽度",
+                        label = "横屏宽度",
                         value = width2,
                         onValueChange = {
                             if (it.isEmpty() || it.toIntOrNull() != null) {
@@ -320,7 +283,7 @@ fun QwenSettingScreen(
                     )
 
                     ParamTextField(
-                        label = "高度",
+                        label = "横屏高度",
                         value = height2,
                         onValueChange = {
                             if (it.isEmpty() || it.toIntOrNull() != null) {
@@ -330,6 +293,40 @@ fun QwenSettingScreen(
                         },
                         keyboardType = KeyboardType.Number,
                         modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ParamTextField(
+                        label = "脱衣提示词",
+                        value = prompt1,
+                        onValueChange = {
+                            prompt1 = it
+                            prefs.put("prompt1", it)
+                        },
+                        keyboardType = KeyboardType.Text,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 3
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ParamTextField(
+                        label = "修图提示词",
+                        value = prompt2,
+                        onValueChange = {
+                            prompt2 = it
+                            prefs.put("prompt2", it)
+                        },
+                        keyboardType = KeyboardType.Text,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 3
                     )
                 }
             }

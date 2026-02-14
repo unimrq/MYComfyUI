@@ -51,21 +51,24 @@ fun ParamTextField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    modifier: Modifier = Modifier
+    keyboardType: KeyboardType,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1
 ) {
     TextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        singleLine = true,
+        singleLine = maxLines == 1,   // 👈 关键
+        minLines = 1,
+        maxLines = maxLines,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = modifier.fillMaxWidth(),
         colors = TextFieldDefaults.colors(
-            focusedIndicatorColor = Color.Blue,     // ✅ 去掉聚焦下划线
-            unfocusedIndicatorColor = Color.Black,   // ✅ 去掉未聚焦下划线
-            disabledIndicatorColor = Color.Red,    // ✅ 去掉禁用下划线
-            errorIndicatorColor = Color.Red,       // ✅ 去掉错误下划线
+            focusedIndicatorColor = Color.Blue,
+            unfocusedIndicatorColor = Color.Black,
+            disabledIndicatorColor = Color.Red,
+            errorIndicatorColor = Color.Red,
             focusedContainerColor = Color.Transparent,
             unfocusedContainerColor = Color.Transparent
         )
@@ -129,7 +132,9 @@ fun NudeModeBottomSheet(
         mutableStateOf(prefs.get("height2", "960"))
     }
 
-    var promptText by remember { mutableStateOf("高质量，专业数码摄影，保持人脸一致性，保持肤色不变，保持构图不变，脱掉女生的所有衣物，不改变女生姿势") }
+//    var promptText by remember { mutableStateOf("高质量，专业数码摄影，保持人脸一致性，保持肤色不变，保持构图不变，脱掉女生的所有衣物，不改变女生姿势") }
+    var promptText by remember { mutableStateOf(prefs.get("prompt1", "")) }
+
     val focusRequester = remember { FocusRequester() }
 
     ModalBottomSheet(

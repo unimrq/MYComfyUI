@@ -683,7 +683,7 @@ fun AlbumScreen(
                                             painter = painterResource(id = R.drawable.recovery),
                                             contentDescription = "切换模式",
                                             tint = topBarColor,
-                                            modifier = Modifier.height(20.dp)
+                                            modifier = Modifier.height(24.dp)
                                         )
                                     }
                                 }
@@ -1720,48 +1720,80 @@ fun AlbumScreen(
                                 iconSize = 22.dp,
                                 itemWidth = itemWidth,
                                 ) {
-
                                 val selectedPaths = uiState.selectedPaths
 
                                 if (selectedPaths.size != 1) {
-                                    Toast.makeText(context, "请选择一张原图", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "请选择一张图片", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
                                 val selectedPath = selectedPaths.first()
 
-                                val originFile = folderContent?.files?.find {
+                                val selectedFile = folderContent?.files?.find {
                                     it.file_url == selectedPath || it.path == selectedPath
                                 }
 
-                                if (originFile == null) {
+                                if (selectedFile == null) {
                                     Toast.makeText(context, "文件信息异常", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
 
-                                val baseName = originFile.name.substringBeforeLast(".")
+                                var originFile = selectedFile
+                                var latestNudeFile: FileInfo? = null
 
-                                val matchedNudeFiles = folderContent.files.filter { file ->
-                                    file.name.startsWith("$baseName-脱衣-")
+                                val fileName = selectedFile.name
+                                val baseNameWithoutExt = fileName.substringBeforeLast(".")
+                                val extension = fileName.substringAfterLast(".", "")
+
+// ======== 情况1：选中的是脱衣图 ========
+                                val nudeRegex = Regex("""(.+)-脱衣-(\d+)$""")
+                                val nudeMatch = nudeRegex.find(baseNameWithoutExt)
+
+                                if (nudeMatch != null) {
+                                    val originalBaseName = nudeMatch.groupValues[1]
+
+                                    // 查找原图
+                                    val possibleOrigin = folderContent.files.find {
+                                        it.name == "$originalBaseName.$extension"
+                                    }
+
+                                    if (possibleOrigin == null) {
+                                        Toast.makeText(context, "未找到匹配的图片", Toast.LENGTH_SHORT).show()
+                                        return@IconActionButton
+                                    }
+
+                                    originFile = possibleOrigin
+                                    latestNudeFile = selectedFile
+                                } else {
+
+                                    // ======== 情况2：选中的是原图（走原逻辑） ========
+
+                                    val baseName = baseNameWithoutExt
+
+                                    val matchedNudeFiles = folderContent.files.filter { file ->
+                                        file.name.startsWith("$baseName-脱衣-")
+                                    }
+
+                                    if (matchedNudeFiles.isEmpty()) {
+                                        Toast.makeText(context, "未找到匹配的图片", Toast.LENGTH_SHORT).show()
+                                        return@IconActionButton
+                                    }
+
+                                    latestNudeFile = matchedNudeFiles.maxByOrNull { file ->
+                                        val timestampPart = file.name
+                                            .removePrefix("$baseName-脱衣-")
+                                            .substringBeforeLast(".")
+
+                                        timestampPart.toLongOrNull() ?: 0L
+                                    }
+
+                                    if (latestNudeFile == null) {
+                                        Toast.makeText(context, "脱衣图片时间格式异常", Toast.LENGTH_SHORT).show()
+                                        return@IconActionButton
+                                    }
                                 }
 
-                                if (matchedNudeFiles.isEmpty()) {
-                                    Toast.makeText(context, "未找到匹配的脱衣图片", Toast.LENGTH_SHORT).show()
-                                    return@IconActionButton
-                                }
-
-                                val latestNudeFile = matchedNudeFiles.maxByOrNull { file ->
-                                    val timestampPart = file.name
-                                        .removePrefix("$baseName-脱衣-")
-                                        .substringBeforeLast(".")
-
-                                    timestampPart.toLongOrNull() ?: 0L
-                                }
-
-                                if (latestNudeFile == null) {
-                                    Toast.makeText(context, "脱衣图片时间格式异常", Toast.LENGTH_SHORT).show()
-                                    return@IconActionButton
-                                }
+// ======== 分辨率校验 ========
 
                                 val w1 = originFile.width?.toIntOrNull()
                                 val h1 = originFile.height?.toIntOrNull()
@@ -1775,13 +1807,14 @@ fun AlbumScreen(
 
                                 val ratio1 = w1.toFloat() / h1
                                 val ratio2 = w2.toFloat() / h2
-
                                 val ratioDiff = kotlin.math.abs(ratio1 / ratio2 - 1f)
 
                                 if (ratioDiff > 0.02f) {
                                     Toast.makeText(context, "图片分辨率差距过大", Toast.LENGTH_SHORT).show()
                                     return@IconActionButton
                                 }
+
+// ======== 跳转 ========
 
                                 val selectedFiles = listOf(originFile, latestNudeFile)
 

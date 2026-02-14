@@ -116,6 +116,7 @@ fun PerspectiveCompareView(
     var restoreTrigger by remember { mutableStateOf(0) }
     var showTopBitmap by remember { mutableStateOf(true) } // 新增隐藏/显示状态
     var cleared by remember { mutableStateOf(false) }
+    var topAlpha by remember { mutableStateOf(1f) }
 
     // 加载上层图片
     LaunchedEffect(topUrl) {
@@ -160,7 +161,8 @@ fun PerspectiveCompareView(
             topBitmap = topBitmap!!,
             bottomBitmap = bottomBitmap!!,
             restoreTrigger = restoreTrigger,
-            showTopBitmap = showTopBitmap
+            showTopBitmap = showTopBitmap,
+            topAlpha = topAlpha
         )
 
         BottomToolBar(
@@ -170,10 +172,20 @@ fun PerspectiveCompareView(
                     showTopBitmap = !showTopBitmap
                     cleared = false
                 }
+                topAlpha = 1f
             },
             onToggleTopVisibility = {
                 showTopBitmap = !showTopBitmap
                 cleared = !cleared
+            },
+            onChangeAlpha = {
+                topAlpha = when (topAlpha) {
+                    0.4f -> 0.2f
+                    0.6f -> 0.4f
+                    0.8f -> 0.6f
+                    1f -> 0.8f
+                    else -> 1f
+                }
             },
             cleared = cleared,
             modifier = Modifier
@@ -187,6 +199,7 @@ fun PerspectiveCompareView(
 fun BottomToolBar(
     onRestoreClicked: () -> Unit,
     onToggleTopVisibility: () -> Unit,
+    onChangeAlpha: () -> Unit,
     cleared: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -219,10 +232,17 @@ fun BottomToolBar(
             iconSize = 22.dp,
             onClick = { onToggleTopVisibility() }
         )
+
+        IconActionButton(
+            iconPainter = painterResource(id = R.drawable.opacity), // 自己准备一个透明度图标
+            label = "透明度",
+            tint = Color.Black,
+            itemWidth = 60.dp,
+            iconSize = 22.dp,
+            onClick = { onChangeAlpha() }
+        )
     }
 }
-
-
 
 
 @Composable
@@ -230,7 +250,9 @@ fun PerspectiveCanvas(
     topBitmap: ImageBitmap,
     bottomBitmap: ImageBitmap,
     restoreTrigger: Int,
-    showTopBitmap: Boolean
+    showTopBitmap: Boolean,
+    topAlpha: Float
+
 ) {
     val path = remember { Path() }
     var redrawTrigger by remember { mutableStateOf(0) }
@@ -380,7 +402,7 @@ fun PerspectiveCanvas(
         val totalScale = baseScale * scale
         val left = (canvasWidth - topBitmap.width * baseScale) / 2f
         val top = (canvasHeight - topBitmap.height * baseScale) / 2f
-        val imageSpaceBrush = topBitmap.width * 0.1f
+        val imageSpaceBrush = topBitmap.width * 0.12f
         val bottomWidthScale =
             topBitmap.width.toFloat() / bottomBitmap.width.toFloat()
 
@@ -403,7 +425,10 @@ fun PerspectiveCanvas(
             drawContext.canvas.translate(left + offset.x, top + offset.y)
             drawContext.canvas.scale(totalScale, totalScale)
 
-            drawImage(topBitmap)
+            drawImage(
+                image = topBitmap,
+                alpha = topAlpha
+            )
 
             drawPath(
                 path = path,

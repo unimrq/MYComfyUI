@@ -82,7 +82,8 @@ fun EditImageSheet(
     val context = LocalContext.current
     val prefs2 = remember { EditPrefs(context) }
 
-    var promptText by remember { mutableStateOf("高质量，专业数码摄影，保持人脸一致性，保持肤色不变，") }
+//    var promptText by remember { mutableStateOf("高质量，专业数码摄影，保持人脸一致性，保持肤色不变，") }
+
     val focusRequester = remember { FocusRequester() }
 
     // ---- 切换输入模式 ----
@@ -156,13 +157,16 @@ fun EditImageSheet(
         mutableStateOf(prefs.get("height", "1440"))
     }
 
-        var width2 by remember {
-            mutableStateOf(prefs.get("width2", "1440"))
-        }
+    var width2 by remember {
+        mutableStateOf(prefs.get("width2", "1440"))
+    }
 
-        var height2 by remember {
-            mutableStateOf(prefs.get("height2", "960"))
-        }
+    var height2 by remember {
+        mutableStateOf(prefs.get("height2", "960"))
+    }
+
+    var promptText by remember { mutableStateOf(prefs.get("prompt2", "")) }
+
 
     LaunchedEffect(Unit) {
         loadItems()
@@ -282,40 +286,87 @@ fun EditImageSheet(
 
             Button(
                 onClick = {
-                    if (isInputMode) {
-                        if (promptText.isBlank()) {
-                            Toast.makeText(context, "请输入文字", Toast.LENGTH_SHORT).show()
-                            return@Button
+
+                    // ---------- 1️⃣ 基础校验 ----------
+                    if (isInputMode && promptText.isBlank()) {
+                        Toast.makeText(context, "请输入文字", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    if (!isInputMode && selectedItems.isEmpty()) {
+                        Toast.makeText(context, "请选择至少一个标签", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    // ---------- 2️⃣ 计算尺寸 ----------
+                    val (finalWidth, finalHeight) = when (screenMode) {
+                        "portrait" -> width.ifBlank { "960" } to height.ifBlank { "1440" }
+                        "landscape" -> width2.ifBlank { "1440" } to height2.ifBlank { "960" }
+                        else -> "0" to "0"
+                    }
+
+                    // ---------- 3️⃣ 生成最终要发送的 prompt 列表 ----------
+                    val finalPrompts = mutableListOf<Pair<String, String?>>()
+                    // Pair<text, prompt_title?>
+
+                    when {
+                        // ① 有输入框 + 有标签
+                        promptText.isNotBlank() && selectedItems.isNotEmpty() -> {
+                            selectedItems.forEach { tag ->
+                                finalPrompts.add(
+                                    "$promptText，${tag.text}" to tag.title
+                                )
+                            }
                         }
 
-                        val (finalWidth, finalHeight) = if (screenMode == "portrait") {
-                            width.ifBlank { "960" } to height.ifBlank { "1440" }
-                        } else if (screenMode == "landscape") {
-                            width2.ifBlank { "1440" } to height2.ifBlank { "960" }
-                        } else {
-                            "0" to "0"
+                        // ② 只有输入框
+                        promptText.isNotBlank() -> {
+                            finalPrompts.add(promptText to null)
                         }
 
-                        val tagText = selectedItems.joinToString(" ") { it.text }
+                        // ③ 只有标签
+                        selectedItems.isNotEmpty() -> {
+                            selectedItems.forEach { tag ->
+                                finalPrompts.add(tag.text to tag.title)
+                            }
+                        }
+                    }
 
-                        val finalText = if (tagText.isNotBlank()) {
-                            "$promptText，$tagText"
-                        } else {
-                            promptText
+                    // ---------- 4️⃣ 统计标签使用次数 ----------
+                    if (selectedItems.isNotEmpty()) {
+                        val newMap = tagUseCount.toMutableMap()
+
+                        selectedItems.forEach { item ->
+                            val key = item.title
+                            val newCount = (newMap[key] ?: 0) + 1
+                            newMap[key] = newCount
+                            prefs2.put(key, newCount.toString())
                         }
 
-                        val params = mapOf(
-                            "denoise" to denoise.ifBlank { "0.85" },
-                            "qwen_model" to qwenModel.ifBlank { "Qwen-Rapid-AIO-NSFW-v19.safetensors" },
-                            "sampler_name" to samplerName.ifBlank { "er_sde" },
-                            "scheduler" to scheduler.ifBlank { "beta" },
-                            "steps" to steps.ifBlank { "4" },
-                            "width" to finalWidth,
-                            "height" to finalHeight,
-                            "text" to finalText
-                        )
+                        tagUseCount = newMap
+                    }
 
-                        scope.launch {
+                    // ---------- 5️⃣ 统一发送 ----------
+                    scope.launch {
+
+                        finalPrompts.forEach { (text, promptTitle) ->
+
+                            val params = mutableMapOf(
+                                "denoise" to denoise.ifBlank { "0.85" },
+                                "qwen_model" to qwenModel.ifBlank { "Qwen-Rapid-AIO-NSFW-v19.safetensors" },
+                                "sampler_name" to samplerName.ifBlank { "er_sde" },
+                                "scheduler" to scheduler.ifBlank { "beta" },
+                                "steps" to steps.ifBlank { "4" },
+                                "width" to finalWidth,
+                                "height" to finalHeight,
+                                "text" to text
+                            )
+
+                            // 只有有标题才传
+                            promptTitle?.let {
+                                params["prompt_title"] = it
+                            }
+
                             imageUrls.forEachIndexed { index, url ->
                                 try {
                                     RetrofitClient.getApi().generateImage(
@@ -329,81 +380,17 @@ fun EditImageSheet(
                                     Toast.makeText(context, "网络错误", Toast.LENGTH_SHORT).show()
                                 }
                             }
-                            onDismiss()
                         }
 
-                        Toast.makeText(context, "已提交修图任务", Toast.LENGTH_SHORT).show()
-                    } else {
-                        if (selectedItems.isEmpty()) {
-                            Toast.makeText(context, "请选择至少一个标签", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-
-                        val (finalWidth, finalHeight) = if (screenMode == "portrait") {
-                            width.ifBlank { "960" } to height.ifBlank { "1440" }
-                        } else if (screenMode == "landscape") {
-                            width2.ifBlank { "1440" } to height2.ifBlank { "960" }
-                        } else {
-                            "0" to "0"
-                        }
-
-                        // ---- 发送时：累计 tag 使用次数 ----
-                        val newMap = tagUseCount.toMutableMap()
-
-                        selectedItems.forEach { item ->
-                            val key = item.title
-                            val newCount = (newMap[item.title] ?: 0) + 1
-
-                            newMap[item.title] = newCount
-                            prefs2.put(key, newCount.toString())
-                        }
-
-                        tagUseCount = newMap
-
-                        scope.launch {
-                            selectedItems.forEach { prompt ->
-                                val finalText = if (promptText.isNotBlank()) {
-                                    promptText + "，" + prompt.text
-                                } else {
-                                    prompt.text
-                                }
-
-                                val params = mapOf(
-                                    "denoise" to denoise.ifBlank { "0.85" },
-                                    "qwen_model" to qwenModel.ifBlank { "Qwen-Rapid-AIO-NSFW-v19.safetensors" },
-                                    "sampler_name" to samplerName.ifBlank { "er_sde" },
-                                    "scheduler" to scheduler.ifBlank { "beta" },
-                                    "steps" to steps.ifBlank { "4" },
-                                    "width" to finalWidth,
-                                    "height" to finalHeight,
-                                    "text" to finalText,
-                                    "prompt_title" to prompt.title
-                                )
-
-
-                                imageUrls.forEachIndexed { index, url ->
-                                    try {
-                                        RetrofitClient.getApi().generateImage(
-                                            type = "修图",
-                                            imageUrl = url,
-                                            thumbnailUrl = thumbnailUrls.getOrNull(index) ?: "",
-                                            args = params
-                                        )
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        Toast.makeText(context, "网络错误", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                            onDismiss()
-                        }
-
-                        Toast.makeText(
-                            context,
-                            "已提交 ${selectedItems.size} 个提示词的修图任务",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        onDismiss()
                     }
+
+                    // ---------- 6️⃣ Toast 提示 ----------
+                    Toast.makeText(
+                        context,
+                        "已提交 ${finalPrompts.size} 个修图任务",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFFB3424A)
