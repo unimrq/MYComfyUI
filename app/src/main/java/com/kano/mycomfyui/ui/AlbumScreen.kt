@@ -1880,10 +1880,6 @@ fun AlbumScreen(
                             }
                             val selectedPaths = uiState.selectedPaths
 
-                                if (selectedPaths.isEmpty()) {
-                                    Toast.makeText(context, "请选择图片", Toast.LENGTH_SHORT).show()
-                                    return@IconActionButton
-                                }
                             if (selectedPaths.isEmpty()) {
                                 Toast.makeText(context, "请选择图片", Toast.LENGTH_SHORT).show()
                                 return@IconActionButton
@@ -2455,7 +2451,15 @@ fun GridWithVerticalScrollHandleOverlay(
     val paddingTopPx = with(LocalDensity.current) { trackPaddingTop.toPx() }
     val paddingBottomPx = with(LocalDensity.current) { trackPaddingBottom.toPx() }
     var isDragging by remember { mutableStateOf(false) }
-    var showHandle by remember { mutableStateOf(true) }
+
+    val showHandle by remember(allItems.size, gridWidthPx, trackHeightPx) {
+        derivedStateOf {
+            val rowHeightPx = if (columns > 0) gridWidthPx / columns else 0f
+            val totalRows = ceil(allItems.size / columns.toFloat())
+            val totalHeightPx = totalRows * rowHeightPx
+            totalHeightPx > 2 * trackHeightPx
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // ------------------ Grid 内容 ------------------
