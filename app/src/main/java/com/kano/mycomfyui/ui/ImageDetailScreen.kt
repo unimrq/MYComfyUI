@@ -1,7 +1,6 @@
 package com.kano.mycomfyui.ui
 
 import android.annotation.SuppressLint
-import androidx.annotation.OptIn
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
@@ -22,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -55,28 +53,15 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.fontscaling.MathUtils.lerp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
-import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.cache.CacheDataSink
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.PlayerView
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
-import coil.decode.ImageDecoderDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.size.Size
-import com.kano.mycomfyui.MyApp
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
-import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
 import kotlin.math.pow
 
 
@@ -227,13 +212,13 @@ fun ImageDetailScreen(
     val endRectNonNull = thumbRect ?: startRectNonNull
 
     data class Transform(
-        val scale: Float,
-        val offset: Offset
+        val scale: Float = 1f,
+        val offset: Offset = Offset.Zero
     )
 
     data class CloseAnimSnapshot(
-        val startRect: Rect,
-        val endRect: Rect
+        val startRect: Rect = Rect.Zero,
+        val endRect: Rect = Rect.Zero
     )
 
 
@@ -560,168 +545,149 @@ fun ImageDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    val isGif = imagePath?.endsWith(".gif")
-                    if (isGif == true){
-                        ImageRequest.Builder(context)
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(context)
                             .data(imagePath)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
                             .size(Size.ORIGINAL)
-                            .apply {
-                                decoderFactory(ImageDecoderDecoder.Factory())
-                            }
-                            .build()
+                            .build(),
+                        contentDescription = "大图",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .graphicsLayer(
+                                scaleX = renderTransform.scale,
+                                scaleY = renderTransform.scale,
+                                translationX = renderTransform.offset.x,
+                                translationY = renderTransform.offset.y,
+                            )
+                            .drawWithContent {
+                                val imageDisplayRect = calculateImageDisplayRect()
 
-                    } else {
+                                if (isClosing && imageDisplayRect != null) {
+                                    val fraction = animateFraction.value
 
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(imagePath)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .size(Size.ORIGINAL)
-                                .apply {
-                                    if (imagePath?.endsWith(".gif") == true) {
-                                        decoderFactory(ImageDecoderDecoder.Factory())
-                                    }
-                                }
-                                .build(),
-                            contentDescription = "大图",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .graphicsLayer(
-                                    scaleX = renderTransform.scale,
-                                    scaleY = renderTransform.scale,
-                                    translationX = renderTransform.offset.x,
-                                    translationY = renderTransform.offset.y,
-                                )
-                                .drawWithContent {
-                                    val imageDisplayRect = calculateImageDisplayRect()
+                                    // 起始裁剪区域：图片实际显示区域
+                                    val startClip = imageDisplayRect
 
-                                    if (isClosing && imageDisplayRect != null) {
-                                        val fraction = animateFraction.value
-
-                                        // 起始裁剪区域：图片实际显示区域
-                                        val startClip = imageDisplayRect
-
-                                        // 目标裁剪区域：正方形
-                                        val squareSize = minOf(
-                                            imageDisplayRect.width,
-                                            imageDisplayRect.height
-                                        )
-
-                                        val endClip = Rect(
-                                            left = imageDisplayRect.center.x - squareSize / 2f,
-                                            top = imageDisplayRect.center.y - squareSize / 2f,
-                                            right = imageDisplayRect.center.x + squareSize / 2f,
-                                            bottom = imageDisplayRect.center.y + squareSize / 2f
-                                        )
-
-                                        val currentClip = lerpRect(startClip, endClip, fraction)
-
-                                        clipRect(
-                                            left = currentClip.left,
-                                            top = currentClip.top,
-                                            right = currentClip.right,
-                                            bottom = currentClip.bottom
-                                        ) {
-                                            this@drawWithContent.drawContent()
-                                        }
-                                    } else {
-                                        drawContent()
-                                    }
-                                }
-                                .fillMaxSize(),
-                            loading = {
-                                if (thumbPath != null) {
-                                    SubcomposeAsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(thumbPath)
-                                            .diskCachePolicy(CachePolicy.ENABLED)
-                                            .memoryCachePolicy(CachePolicy.ENABLED)
-                                            .size(Size.ORIGINAL)
-                                            .listener(
-                                                onSuccess = { _, result ->
-                                                    imageSize = IntSize(
-                                                        result.drawable.intrinsicWidth,
-                                                        result.drawable.intrinsicHeight
-                                                    )
-                                                }
-                                            )
-                                            .build(),
-                                        contentDescription = "缩略图",
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
+                                    // 目标裁剪区域：正方形
+                                    val squareSize = minOf(
+                                        imageDisplayRect.width,
+                                        imageDisplayRect.height
                                     )
-                                } else {
-                                    // 缩略图不存在时显示加载指示器
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
+
+                                    val endClip = Rect(
+                                        left = imageDisplayRect.center.x - squareSize / 2f,
+                                        top = imageDisplayRect.center.y - squareSize / 2f,
+                                        right = imageDisplayRect.center.x + squareSize / 2f,
+                                        bottom = imageDisplayRect.center.y + squareSize / 2f
+                                    )
+
+                                    val currentClip = lerpRect(startClip, endClip, fraction)
+
+                                    clipRect(
+                                        left = currentClip.left,
+                                        top = currentClip.top,
+                                        right = currentClip.right,
+                                        bottom = currentClip.bottom
                                     ) {
-                                        CircularProgressIndicator(color = Color.White)
+                                        this@drawWithContent.drawContent()
                                     }
+                                } else {
+                                    drawContent()
                                 }
-                            },
-                            error = {
+                            }
+                            .fillMaxSize(),
+                        loading = {
+                            if (thumbPath != null) {
+                                SubcomposeAsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(thumbPath)
+                                        .diskCachePolicy(CachePolicy.ENABLED)
+                                        .memoryCachePolicy(CachePolicy.ENABLED)
+                                        .size(Size.ORIGINAL)
+                                        .listener(
+                                            onSuccess = { _, result ->
+                                                imageSize = IntSize(
+                                                    result.drawable.intrinsicWidth,
+                                                    result.drawable.intrinsicHeight
+                                                )
+                                            }
+                                        )
+                                        .build(),
+                                    contentDescription = "缩略图",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                // 缩略图不存在时显示加载指示器
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("加载失败", color = Color.Red)
-                                }
-                            },
-                            success = {
-                                SubcomposeAsyncImageContent()
-
-                                val painter = painter
-                                val drawable = painter.intrinsicSize
-                                if (
-                                    imageSize == IntSize.Zero && drawable.width > 0f && drawable.height > 0f
-                                ) {
-                                    imageSize = IntSize(
-                                        drawable.width.toInt(),
-                                        drawable.height.toInt()
-                                    )
+                                    CircularProgressIndicator(color = Color.White)
                                 }
                             }
-
-                        )
-
-                        IconButton(
-                            onClick = { showRawImage = !showRawImage },
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(end = 12.dp, top = 96.dp)
-                                .size(32.dp).graphicsLayer { alpha = 0f }
-                        ) {
+                        },
+                        error = {
                             Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(
-                                        color = Color.White.copy(alpha = 0f),
-                                        shape = CircleShape
-                                    )
-                                ,
+                                modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (showRawImage) {
-                                    Image(
-                                        painter = painterResource(id = R.drawable.visibility),
-                                        contentDescription = "查看原图",
-                                        modifier = Modifier.size(22.dp),
-                                        colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
-                                    )
-                                } else {
-                                    Image(
-                                        painter = painterResource(R.drawable.visibility_off),
-                                        contentDescription = "查看原图",
-                                        modifier = Modifier.size(24.dp),
-                                        colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
-                                    )
-                                }
+                                Text("加载失败", color = Color.Red)
+                            }
+                        },
+                        success = {
+                            SubcomposeAsyncImageContent()
 
+                            val painter = painter
+                            val drawable = painter.intrinsicSize
+                            if (
+                                imageSize == IntSize.Zero && drawable.width > 0f && drawable.height > 0f
+                            ) {
+                                imageSize = IntSize(
+                                    drawable.width.toInt(),
+                                    drawable.height.toInt()
+                                )
                             }
                         }
 
+                    )
+
+                    IconButton(
+                        onClick = { showRawImage = !showRawImage },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 12.dp, top = 96.dp)
+                            .size(32.dp).graphicsLayer { alpha = 0f }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(
+                                    color = Color.White.copy(alpha = 0f),
+                                    shape = CircleShape
+                                )
+                            ,
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (showRawImage) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.visibility),
+                                    contentDescription = "查看原图",
+                                    modifier = Modifier.size(22.dp),
+                                    colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+                                )
+                            } else {
+                                Image(
+                                    painter = painterResource(R.drawable.visibility_off),
+                                    contentDescription = "查看原图",
+                                    modifier = Modifier.size(24.dp),
+                                    colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+                                )
+                            }
+
+                        }
                     }
                 }
             }
