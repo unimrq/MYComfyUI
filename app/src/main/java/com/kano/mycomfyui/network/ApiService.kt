@@ -2,6 +2,7 @@ package com.kano.mycomfyui.network
 
 import com.kano.mycomfyui.data.FolderContent
 import com.kano.mycomfyui.data.RestartResponse
+import com.kano.mycomfyui.ui.Folder
 import com.kano.mycomfyui.ui.TaskInfo
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
