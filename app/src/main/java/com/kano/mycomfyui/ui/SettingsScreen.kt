@@ -85,13 +85,6 @@ fun SettingsScreen(navController: NavController) {
             }
 
             SettingsCard(
-                title = "功能设置",
-                iconVector = Icons.Default.Settings
-            ) {
-                navController.navigate("function_settings")
-            }
-
-            SettingsCard(
                 title = "提示词",
                 iconPainter = painterResource(R.drawable.word)
             ) {

@@ -67,7 +67,6 @@ import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import com.kano.mycomfyui.ui.AlbumScreen
 import com.kano.mycomfyui.ui.AddressSettingScreen
-import com.kano.mycomfyui.ui.FunctionSettingScreen
 import com.kano.mycomfyui.ui.PerspectiveScreen
 import com.kano.mycomfyui.ui.PromptAddScreen
 import com.kano.mycomfyui.ui.PromptEditScreen
@@ -233,10 +232,6 @@ class MainActivity : ComponentActivity() {
 
                         composable("address_settings") {
                             AddressSettingScreen()
-                        }
-
-                        composable("function_settings") {
-                            FunctionSettingScreen()
                         }
 
                         composable("prompt_list") {

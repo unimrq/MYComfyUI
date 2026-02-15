@@ -79,73 +79,6 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import kotlin.math.pow
 
-@SuppressLint("RememberReturnType")
-@Composable
-fun CachedVideoPlayer(
-    videoPath: String,
-    secretKey: String,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-
-
-    val exoPlayer = remember {
-        // 1️⃣ OkHttpClient 带 X-Secret Header
-        val okHttpClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val requestBuilder = chain.request().newBuilder()
-                // 仅网络 URL 才加 Header
-                if (videoPath.startsWith("http")) {
-                    requestBuilder.addHeader("X-Secret", secretKey)
-                }
-                chain.proceed(requestBuilder.build())
-            }
-            .build()
-
-        // 2️⃣ OkHttpDataSource.Factory
-        val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-
-        // 3️⃣ CacheDataSource.Factory
-        val cacheFactory = CacheDataSource.Factory()
-            .setCache(MyApp.simpleCache) // 你的缓存对象
-            .setUpstreamDataSourceFactory(okHttpDataSourceFactory)
-            .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(MyApp.simpleCache))
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-        // 4️⃣ 创建 ExoPlayer
-        ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(cacheFactory))
-            .build().apply {
-                setMediaItem(MediaItem.fromUri(videoPath))
-                repeatMode = ExoPlayer.REPEAT_MODE_ONE
-                prepare()
-                playWhenReady = true
-            }
-    }
-
-    // 自动释放
-    DisposableEffect(Unit) {
-        onDispose { exoPlayer.release() }
-    }
-
-    // Compose UI
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-}
-
 
 @SuppressLint("UnrememberedMutableState", "ConfigurationScreenWidthHeight",
     "UnnecessaryComposedModifier"
@@ -185,8 +118,6 @@ fun ImageDetailScreen(
 
     val currentFile = getSafeFile(sortedFiles, currentIndex) ?: return
 
-    val isVideo = currentFile.path.lowercase().endsWith(".mp4")
-
     // 缩放和平移
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -196,8 +127,10 @@ fun ImageDetailScreen(
     val doubleTapScale = 3f
 
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
-    var imageSize by remember { mutableStateOf(IntSize.Zero) }
-
+    val widthInt = currentFile.width?.toIntOrNull() ?: 0
+    val heightInt = currentFile.height?.toIntOrNull() ?: 0
+    val size = IntSize(widthInt, heightInt)
+    var imageSize by remember { mutableStateOf(size) }
 
     // 动画
     // 下拽相关
@@ -452,7 +385,6 @@ fun ImageDetailScreen(
 
         // 原有内容（不受影响）
         Box(
-
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { containerSize = it }
@@ -508,9 +440,7 @@ fun ImageDetailScreen(
                     // ✅ 双击放大/还原
                     detectTapGestures(
                         onTap = {
-                            if(!isVideo){
-                                onImageClick()
-                            }
+                            onImageClick()
                             isTopBarVisible = !isTopBarVisible
                         },
                         onDoubleTap = {
@@ -588,236 +518,225 @@ fun ImageDetailScreen(
                     currentTransform
                 }
 
-            if (isVideo) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    CachedVideoPlayer(
-                        currentFile.net_url.toString(),
-                        secretKey = ServerConfig.secret,
-                        modifier = Modifier.fillMaxSize()
-                    )
+
+            val pagerState = rememberPagerState(initialPage = currentIndex, pageCount = { sortedFiles.size })
+            val userScrollEnabled = scale == 1f
+
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                pageSpacing = 8.dp,
+                userScrollEnabled = userScrollEnabled
+            ) { page ->
+                var showRawImage by remember(page) { mutableStateOf(false) }
+                val currentFile = sortedFiles.getOrNull(page)
+
+                val thumbPath = currentFile?.thumb_url
+                val imagePath = if (showRawImage) {
+                    currentFile?.net_url?.replace("/photos/", "/photos-raw/")
+                } else {
+                    currentFile?.net_url
                 }
-            }
-            else {
-                val pagerState = rememberPagerState(initialPage = currentIndex, pageCount = { sortedFiles.size })
-                val userScrollEnabled = scale == 1f
-
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    pageSpacing = 8.dp,
-                    userScrollEnabled = userScrollEnabled
-                ) { page ->
-                    var showRawImage by remember(page) { mutableStateOf(false) }
-                    val currentFile = sortedFiles.getOrNull(page)
-
-                    val thumbPath = currentFile?.thumb_url
-                    val imagePath = if (showRawImage) {
-                        currentFile?.net_url?.replace("/photos/", "/photos-raw/")
-                    } else {
-                        currentFile?.net_url
-                    }
 
 
-                    LaunchedEffect(pagerState) {
-                        snapshotFlow { pagerState.currentPage }
-                            .collect { page ->
-                                if (page != currentIndex) {
-                                    currentIndex = page
-                                    val file = sortedFiles.getOrNull(currentIndex)
-                                    file?.net_url?.let { onSelectedFileChange?.invoke(it) }
-                                }
+                LaunchedEffect(pagerState) {
+                    snapshotFlow { pagerState.currentPage }
+                        .collect { page ->
+                            if (page != currentIndex) {
+                                currentIndex = page
+                                val file = sortedFiles.getOrNull(currentIndex)
+                                file?.net_url?.let { onSelectedFileChange?.invoke(it) }
                             }
+                        }
 
-                    }
+                }
 
-                    LaunchedEffect(imagePath) {
-                        scale = 1f
-                        offset = Offset.Zero
-                    }
+                LaunchedEffect(imagePath) {
+                    scale = 1f
+                    offset = Offset.Zero
+                }
 
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val isGif = imagePath?.endsWith(".gif")
-                        if (isGif == true){
-                            ImageRequest.Builder(context)
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val isGif = imagePath?.endsWith(".gif")
+                    if (isGif == true){
+                        ImageRequest.Builder(context)
+                            .data(imagePath)
+                            .size(Size.ORIGINAL)
+                            .apply {
+                                decoderFactory(ImageDecoderDecoder.Factory())
+                            }
+                            .build()
+
+                    } else {
+
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
                                 .data(imagePath)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
                                 .size(Size.ORIGINAL)
                                 .apply {
-                                    decoderFactory(ImageDecoderDecoder.Factory())
+                                    if (imagePath?.endsWith(".gif") == true) {
+                                        decoderFactory(ImageDecoderDecoder.Factory())
+                                    }
                                 }
-                                .build()
+                                .build(),
+                            contentDescription = "大图",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .graphicsLayer(
+                                    scaleX = renderTransform.scale,
+                                    scaleY = renderTransform.scale,
+                                    translationX = renderTransform.offset.x,
+                                    translationY = renderTransform.offset.y,
+                                )
+                                .drawWithContent {
+                                    val imageDisplayRect = calculateImageDisplayRect()
 
-                        } else {
+                                    if (isClosing && imageDisplayRect != null) {
+                                        val fraction = animateFraction.value
 
-                            SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(imagePath)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .size(Size.ORIGINAL)
-                                    .apply {
-                                        if (imagePath?.endsWith(".gif") == true) {
-                                            decoderFactory(ImageDecoderDecoder.Factory())
-                                        }
-                                    }
-                                    .build(),
-                                contentDescription = "大图",
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .graphicsLayer(
-                                        scaleX = renderTransform.scale,
-                                        scaleY = renderTransform.scale,
-                                        translationX = renderTransform.offset.x,
-                                        translationY = renderTransform.offset.y,
-                                    )
-                                    .drawWithContent {
-                                        val imageDisplayRect = calculateImageDisplayRect()
+                                        // 起始裁剪区域：图片实际显示区域
+                                        val startClip = imageDisplayRect
 
-                                        if (isClosing && imageDisplayRect != null) {
-                                            val fraction = animateFraction.value
-
-                                            // 起始裁剪区域：图片实际显示区域
-                                            val startClip = imageDisplayRect
-
-                                            // 目标裁剪区域：正方形
-                                            val squareSize = minOf(
-                                                imageDisplayRect.width,
-                                                imageDisplayRect.height
-                                            )
-
-                                            val endClip = Rect(
-                                                left = imageDisplayRect.center.x - squareSize / 2f,
-                                                top = imageDisplayRect.center.y - squareSize / 2f,
-                                                right = imageDisplayRect.center.x + squareSize / 2f,
-                                                bottom = imageDisplayRect.center.y + squareSize / 2f
-                                            )
-
-                                            val currentClip = lerpRect(startClip, endClip, fraction)
-
-                                            clipRect(
-                                                left = currentClip.left,
-                                                top = currentClip.top,
-                                                right = currentClip.right,
-                                                bottom = currentClip.bottom
-                                            ) {
-                                                this@drawWithContent.drawContent()
-                                            }
-                                        } else {
-                                            drawContent()
-                                        }
-                                    }
-                                    .fillMaxSize(),
-                                loading = {
-                                    if (thumbPath != null) {
-                                        SubcomposeAsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(thumbPath)
-                                                .diskCachePolicy(CachePolicy.ENABLED)
-                                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                                .size(Size.ORIGINAL)
-                                                .listener(
-                                                    onSuccess = { _, result ->
-                                                        imageSize = IntSize(
-                                                            result.drawable.intrinsicWidth,
-                                                            result.drawable.intrinsicHeight
-                                                        )
-                                                    }
-                                                )
-                                                .build(),
-                                            contentDescription = "缩略图",
-                                            contentScale = ContentScale.Fit,
-                                            modifier = Modifier.fillMaxSize()
+                                        // 目标裁剪区域：正方形
+                                        val squareSize = minOf(
+                                            imageDisplayRect.width,
+                                            imageDisplayRect.height
                                         )
-                                    } else {
-                                        // 缩略图不存在时显示加载指示器
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
+
+                                        val endClip = Rect(
+                                            left = imageDisplayRect.center.x - squareSize / 2f,
+                                            top = imageDisplayRect.center.y - squareSize / 2f,
+                                            right = imageDisplayRect.center.x + squareSize / 2f,
+                                            bottom = imageDisplayRect.center.y + squareSize / 2f
+                                        )
+
+                                        val currentClip = lerpRect(startClip, endClip, fraction)
+
+                                        clipRect(
+                                            left = currentClip.left,
+                                            top = currentClip.top,
+                                            right = currentClip.right,
+                                            bottom = currentClip.bottom
                                         ) {
-                                            CircularProgressIndicator(color = Color.White)
+                                            this@drawWithContent.drawContent()
                                         }
+                                    } else {
+                                        drawContent()
                                     }
-                                },
-                                error = {
+                                }
+                                .fillMaxSize(),
+                            loading = {
+                                if (thumbPath != null) {
+                                    SubcomposeAsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(thumbPath)
+                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .size(Size.ORIGINAL)
+                                            .listener(
+                                                onSuccess = { _, result ->
+                                                    imageSize = IntSize(
+                                                        result.drawable.intrinsicWidth,
+                                                        result.drawable.intrinsicHeight
+                                                    )
+                                                }
+                                            )
+                                            .build(),
+                                        contentDescription = "缩略图",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    // 缩略图不存在时显示加载指示器
                                     Box(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("加载失败", color = Color.Red)
-                                    }
-                                },
-                                success = {
-                                    SubcomposeAsyncImageContent()
-
-                                    val painter = painter
-                                    val drawable = painter.intrinsicSize
-                                    if (
-                                        imageSize == IntSize.Zero && drawable.width > 0f && drawable.height > 0f
-                                    ) {
-                                        imageSize = IntSize(
-                                            drawable.width.toInt(),
-                                            drawable.height.toInt()
-                                        )
+                                        CircularProgressIndicator(color = Color.White)
                                     }
                                 }
-
-                            )
-
-                            IconButton(
-                                onClick = { showRawImage = !showRawImage },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(end = 12.dp, top = 96.dp)
-                                    .size(32.dp).graphicsLayer { alpha = 0f }
-                            ) {
+                            },
+                            error = {
                                 Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .background(
-                                            color = Color.White.copy(alpha = 0f),
-                                            shape = CircleShape
-                                        )
-                                    ,
+                                    modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (showRawImage) {
-                                        Image(
-                                            painter = painterResource(id = R.drawable.visibility),
-                                            contentDescription = "查看原图",
-                                            modifier = Modifier.size(22.dp),
-                                            colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
-                                        )
-                                    } else {
-                                        Image(
-                                            painter = painterResource(R.drawable.visibility_off),
-                                            contentDescription = "查看原图",
-                                            modifier = Modifier.size(24.dp),
-                                            colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
-                                        )
-                                    }
+                                    Text("加载失败", color = Color.Red)
+                                }
+                            },
+                            success = {
+                                SubcomposeAsyncImageContent()
 
+                                val painter = painter
+                                val drawable = painter.intrinsicSize
+                                if (
+                                    imageSize == IntSize.Zero && drawable.width > 0f && drawable.height > 0f
+                                ) {
+                                    imageSize = IntSize(
+                                        drawable.width.toInt(),
+                                        drawable.height.toInt()
+                                    )
                                 }
                             }
 
+                        )
+
+                        IconButton(
+                            onClick = { showRawImage = !showRawImage },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(end = 12.dp, top = 96.dp)
+                                .size(32.dp).graphicsLayer { alpha = 0f }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(
+                                        color = Color.White.copy(alpha = 0f),
+                                        shape = CircleShape
+                                    )
+                                ,
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (showRawImage) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.visibility),
+                                        contentDescription = "查看原图",
+                                        modifier = Modifier.size(22.dp),
+                                        colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+                                    )
+                                } else {
+                                    Image(
+                                        painter = painterResource(R.drawable.visibility_off),
+                                        contentDescription = "查看原图",
+                                        modifier = Modifier.size(24.dp),
+                                        colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+                                    )
+                                }
+
+                            }
                         }
+
                     }
                 }
+            }
 
-                // ✅ 页码固定在屏幕底部中央
-                if(!isTopBarVisible){
-                    Text(
-                        text = "${pagerState.currentPage + 1} / ${sortedFiles.size}",
-                        fontSize = 18.sp,
-                        color = Color.White.copy(alpha = 0.8f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 24.dp)
-                    )
-                }
-
+            // ✅ 页码固定在屏幕底部中央
+            if(!isTopBarVisible){
+                Text(
+                    text = "${pagerState.currentPage + 1} / ${sortedFiles.size}",
+                    fontSize = 18.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                )
             }
         }
     }

@@ -314,7 +314,7 @@ fun EditImageSheet(
                         promptText.isNotBlank() && selectedItems.isNotEmpty() -> {
                             selectedItems.forEach { tag ->
                                 finalPrompts.add(
-                                    "$promptText，${tag.text}" to tag.title
+                                    "$promptText${tag.text}" to tag.title
                                 )
                             }
                         }
@@ -411,23 +411,26 @@ fun EditImageSheet(
 @Composable
 fun TinyTag(
     text: String,
-    selected: Boolean,
     useCount: Int,
+    selected: Boolean,
+    maxCount: Int = 30,
     onClick: () -> Unit
 ) {
-    val maxCount = 30f
-    val fraction = (useCount / maxCount).coerceIn(0f, 1f)
+    val fraction = (useCount.toFloat() / maxCount).coerceIn(0f, 1f)
 
-    val baseColor = MaterialTheme.colorScheme.surfaceVariant
-    val deepColor = MaterialTheme.colorScheme.primary
+    val deepColor = Color(0xFF99ADE0)
+    val lightColor = Color.White
 
-    val bgColor =
-        if (selected) deepColor
-        else lerp(baseColor, deepColor, fraction)
+    val bgColor = if (selected) {
+        // 选中状态固定红棕色
+        Color(0xFFB22222)
+    } else {
+        lerp(lightColor, deepColor, fraction)
+    }
 
     Box(
         modifier = Modifier
-            .background(bgColor, RoundedCornerShape(8.dp))
+            .background(bgColor, shape = RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
@@ -442,7 +445,6 @@ fun TinyTag(
         )
     }
 }
-
 
 
 

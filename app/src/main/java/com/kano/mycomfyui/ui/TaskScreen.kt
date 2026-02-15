@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -22,6 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -52,6 +56,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +64,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import com.kano.mycomfyui.R
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
 import kotlinx.coroutines.isActive
@@ -112,25 +118,70 @@ fun TaskScreen(
             val resp = api.getTasks()
 
             val formatter = DateTimeFormatter.ISO_DATE_TIME
-            taskList = resp.sortedByDescending { task ->
-                try {
-                    task.start_time?.let { LocalDateTime.parse(it, formatter) } ?: LocalDateTime.MIN
-                } catch (e: Exception) {
-                    LocalDateTime.MIN
-                }
-            }
+
+            taskList = resp.sortedWith(
+                compareByDescending<TaskInfo> { it.status == "正在执行" }
+                    .thenByDescending { task ->
+                        try {
+                            task.start_time?.let {
+                                LocalDateTime.parse(it, formatter)
+                            } ?: LocalDateTime.MIN
+                        } catch (e: Exception) {
+                            LocalDateTime.MIN
+                        }
+                    }
+            )
+
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    suspend fun restartTask(id: String) {
-        try {
-            val api = RetrofitClient.getApi()
-            val resp = api.restartTask(id)
-            if (resp.success) loadTasks()
-        } catch (e: Exception) {
-            e.printStackTrace()
+    // ---- 顶层统一操作函数 ----
+    fun handleDeleteTask(taskId: String) {
+        scope.launch {
+            try {
+                val api = RetrofitClient.getApi()
+                val resp = api.deleteTask(taskId)
+                if (resp.status == "success") {
+                    // 刷新任务列表
+                    loadTasks()
+                    // 关闭 BottomSheet
+                    selectedTask = null
+                    sheetState.hide()
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    fun handlePinTask(taskId: String) {
+        scope.launch {
+            try {
+                val api = RetrofitClient.getApi()
+                val resp = api.pinTask(taskId)
+                if (resp.status == "success") {
+                    // 刷新任务列表
+                    loadTasks()
+                    // 关闭 BottomSheet
+                    selectedTask = null
+                    sheetState.hide()
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    fun handleRestartTask(taskId: String) {
+        scope.launch {
+            try {
+                val api = RetrofitClient.getApi()
+                val resp = api.restartTask(taskId)
+                if (resp.success) {
+                    loadTasks()
+                    // 可选：重启任务后也关闭 BottomSheet
+                    selectedTask = null
+                    sheetState.hide()
+                }
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
 
@@ -170,7 +221,26 @@ fun TaskScreen(
                         Icon(
                             Icons.Filled.Close,
                             contentDescription = "清空任务",
-                            tint = Color.Black
+                            tint = Color.Black,
+                        )
+                    }
+
+                    IconButton(onClick = {
+                        scope.launch {
+                            try {
+                                val api = RetrofitClient.getApi()
+                                val response = api.deleteTasks()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "删除任务",
+                            tint = Color.Black,
+                            modifier = Modifier.height(22.dp)
+
                         )
                     }
                 }
@@ -207,14 +277,58 @@ fun TaskScreen(
                 },
                 sheetState = sheetState
             ) {
-                TaskDetailContent(
-                    task = task,
-                    onRestart = {
-                        scope.launch {
-                            restartTask(task.id)
+                var previewUrl by remember { mutableStateOf<String?>(null) }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+
+                    // ===== 图片行 =====
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            space = 16.dp,
+                            alignment = Alignment.CenterHorizontally
+                        ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 原图
+                        if (!task.imageUrl.isNullOrEmpty()) {
+                            PreviewImage(
+                                url = "${ServerConfig.baseUrl}${task.thumbnailUrl}",
+                                onClick = { previewUrl = it }
+                            )
+                        }
+
+                        // 结果图
+                        if (!task.result.isNullOrEmpty() && !task.result.endsWith(".mp4", ignoreCase = true)) {
+                            PreviewImage(
+                                url = "${ServerConfig.baseUrl}${task.result}",
+                                onClick = { previewUrl = it }
+                            )
                         }
                     }
-                )
+
+
+
+                    TaskInfoSection(
+                        task,
+                        onRestart = { handleRestartTask(it.id) },
+                        onDelete = { handleDeleteTask(it.id) },
+                        onPinTop = { handlePinTask(it.id) }
+                    )
+                }
+
+                // ===== 全屏预览 Dialog =====
+                previewUrl?.let { url ->
+                    FullScreenImageDialog(
+                        imageUrl = url,
+                        onDismiss = { previewUrl = null }
+                    )
+                }
             }
         }
     }
@@ -302,7 +416,7 @@ fun StatusOverlay(
         when (status) {
             "正在执行" -> {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
+                    modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                     color = Color.Black
                 )
@@ -320,73 +434,18 @@ fun StatusOverlay(
                     imageVector = Icons.Default.Close,
                     contentDescription = null,
                     tint = Color.Red,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
             "追加任务" -> {
                 Icon(
-                    imageVector = Icons.Default.Create,
+                    painter = painterResource(id = R.drawable.clock),
                     contentDescription = null,
-                    tint = Color(0xFF4C79AF),
-                    modifier = Modifier.size(20.dp)
+                    tint = Color(0xFFF97316),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
-    }
-}
-
-
-@Composable
-fun TaskDetailContent(
-    task: TaskInfo,
-    onRestart: () -> Unit
-) {
-    var previewUrl by remember { mutableStateOf<String?>(null) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-
-        // ===== 图片行 =====
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(
-                space = 16.dp,
-                alignment = Alignment.CenterHorizontally
-            ),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 原图
-            if (!task.imageUrl.isNullOrEmpty()) {
-                PreviewImage(
-                    url = "${ServerConfig.baseUrl}${task.thumbnailUrl}",
-                    onClick = { previewUrl = it }
-                )
-            }
-
-            // 结果图
-            if (!task.result.isNullOrEmpty()) {
-                PreviewImage(
-                    url = "${ServerConfig.baseUrl}${task.result}",
-                    onClick = { previewUrl = it }
-                )
-            }
-        }
-
-
-
-        TaskInfoSection(task)
-    }
-
-    // ===== 全屏预览 Dialog =====
-    previewUrl?.let { url ->
-        FullScreenImageDialog(
-            imageUrl = url,
-            onDismiss = { previewUrl = null }
-        )
     }
 }
 
@@ -398,7 +457,12 @@ fun formatTime(raw: String): String {
 
 
 @Composable
-fun TaskInfoSection(task: TaskInfo) {
+fun TaskInfoSection(
+    task: TaskInfo,
+    onRestart: (TaskInfo) -> Unit = {},
+    onDelete: (TaskInfo) -> Unit = {},
+    onPinTop: (TaskInfo) -> Unit = {}
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth(),
@@ -406,31 +470,64 @@ fun TaskInfoSection(task: TaskInfo) {
     ) {
 
         // ===== 状态行 =====
-        Row(modifier = Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             val statusColor = when (task.status) {
                 "执行成功" -> Color(0xFF4CAF50)
                 "执行失败", "执行超时" -> Color(0xFFF44336)
-                "正在执行" -> Color(0xFFFF9800)
+                "正在执行" -> Color(0xFF0099FF)
+                "追加任务" -> Color(0xFFF97316)
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
 
+            // 状态圆点
             Box(
                 modifier = Modifier
                     .size(12.dp)
                     .background(statusColor, CircleShape)
             )
 
-            Spacer(modifier = Modifier.padding(8.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // 状态文字
             Text(
                 text = task.status,
                 style = MaterialTheme.typography.bodyMedium,
                 color = statusColor,
                 fontSize = 20.sp
             )
+
+            Spacer(modifier = Modifier.weight(1f)) // 推按钮到右边
+
+            // ===== 按钮区域 =====
+            IconButton(onClick = { onRestart(task) }) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "刷新"
+                )
+            }
+
+            IconButton(onClick = { onDelete(task) }) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "删除"
+                )
+            }
+
+            IconButton(onClick = { onPinTop(task) }) {
+                Icon(
+                    painter = painterResource(id = R.drawable.top),
+                    contentDescription = "置顶",
+                    modifier = Modifier.height(22.dp)
+                )
+            }
         }
 
         Divider()
-
 
         // ===== 任务类型 =====
         InfoRow(
@@ -456,7 +553,6 @@ fun TaskInfoSection(task: TaskInfo) {
                 valueColor = MaterialTheme.colorScheme.error
             )
         }
-
 
         // ===== 时间 =====
         task.start_time?.let {

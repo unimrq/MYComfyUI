@@ -12,6 +12,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
+import com.kano.mycomfyui.data.FileInfo
 import com.kano.mycomfyui.data.FolderContent
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
@@ -104,171 +105,92 @@ fun saveFileToGallery(context: Context, inputStream: InputStream, filename: Stri
     }
 }
 
-fun downloadSelectedImages(
-    context: Context,
-    scope: CoroutineScope,
-    selectedImages: List<String>,
-    onStart: () -> Unit,
-    onProgress: (current: Int, total: Int, filename: String) -> Unit,
-    onFinish: () -> Unit,
-    onError: (String) -> Unit
-) {
-    if (selectedImages.isEmpty()) {
-        onError("未选中任何图片")
-        return
-    }
+fun resolveDiffFilesWithCheck(
+    selectedFiles: List<FileInfo>,
+    allFiles: List<FileInfo>
+): Pair<FileInfo, FileInfo>? {
 
-    scope.launch {
-        onStart()
+    if (selectedFiles.isEmpty()) return null
 
-        selectedImages.forEachIndexed { index, imagePath ->
-            val filename = imagePath.substringAfterLast("/")
-            onProgress(index + 1, selectedImages.size, filename)
+    val originFile: FileInfo
+    val latestNudeFile: FileInfo
 
-            try {
-                val fullUrl = "${ServerConfig.baseUrl}$imagePath"
+    // ==========================================================
+    // 1️⃣ 选择 1 张 → 自动匹配
+    // ==========================================================
+    if (selectedFiles.size == 1) {
 
-                withContext(Dispatchers.IO) {
-                    val request = okhttp3.Request.Builder()
-                        .url(fullUrl)
-                        .build()
+        val selectedFile = selectedFiles.first()
+        val baseNameWithoutExt = selectedFile.name.substringBeforeLast(".")
 
-                    val response = okhttp3.OkHttpClient()
-                        .newCall(request)
-                        .execute()
+        val nudeRegex = Regex("""(.+)-脱衣-(\d+)$""")
+        val nudeMatch = nudeRegex.find(baseNameWithoutExt)
 
-                    if (!response.isSuccessful) {
-                        response.close()
-                        throw Exception("下载失败")
-                    }
+        if (nudeMatch != null) {
+            // 选中的是脱衣图
+            val originalBaseName = nudeMatch.groupValues[1]
 
-                    response.body?.byteStream()?.use { inputStream ->
-                        val savedUri = saveFileToGallery(
-                            context = context,
-                            inputStream = inputStream,
-                            filename = filename
-                        )
+            val possibleOrigin = allFiles.find {
+                it.name.substringBeforeLast(".") == originalBaseName
+            } ?: return null
 
-                        if (savedUri == null) {
-                            throw Exception("保存失败：$filename")
-                        }
-                    }
+            originFile = possibleOrigin
+            latestNudeFile = selectedFile
 
-                    response.close()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                onError("下载出错: ${e.message}")
-            }
-        }
-
-        onFinish()
-    }
-}
-
-/**
- * 删除相关
- */
-
-@Composable
-fun DeleteConfirmDialog(
-    selectedCount: Int,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text("确认删除")
-        },
-        text = {
-            Text("确定要删除选中的 $selectedCount 个文件吗？此操作不可恢复。")
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text("删除", color = Color.Red)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
-}
-
-fun deleteSelectedImages(
-    context: Context,
-    scope: CoroutineScope,
-    multiSelectMode: Boolean,
-    selectedImages: MutableList<String>,
-    folderContent: FolderContent?,
-    imageList: MutableList<String>,
-    thumbList: MutableList<String>,
-    fileList: SnapshotStateList<String>,
-    onSingleDeleteResult: (newIndex: Int, newPath: String?) -> Unit,
-    refreshFolder: suspend () -> Unit
-) {
-    Toast.makeText(context, "正在删除...", Toast.LENGTH_SHORT).show()
-
-    if (multiSelectMode) {
-        val filesToDelete = selectedImages.mapNotNull { path ->
-            folderContent?.files?.find {
-                it.file_url == path || it.path == path
-            }
-        }
-
-        filesToDelete.forEach { file ->
-            val index = imageList.indexOf(file.net_url)
-            if (index >= 0) {
-                imageList.removeAt(index)
-                thumbList.removeAt(index)
-                fileList.removeAt(index)
-            }
-        }
-
-        scope.launch {
-            filesToDelete.map { file ->
-                async {
-                    try {
-                        RetrofitClient.getApi().deleteFile(file.path)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }.awaitAll()
-
-            selectedImages.clear()
-            Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
-            refreshFolder()
-        }
-    } else {
-        val currentPath = selectedImages.firstOrNull() ?: return
-        val file = folderContent?.files?.find {
-            it.file_url == currentPath || it.path == currentPath
-        } ?: return
-
-        val index = imageList.indexOf(file.net_url)
-        if (index < 0) return
-
-        imageList.removeAt(index)
-        thumbList.removeAt(index)
-        fileList.removeAt(index)
-
-        scope.launch {
-            try {
-                RetrofitClient.getApi().deleteFile(file.path)
-                val newIndex = index.coerceAtMost(imageList.lastIndex)
-                val newPath = imageList.getOrNull(newIndex)
-                onSingleDeleteResult(newIndex, newPath)
-                selectedImages.clear()
-            } catch (e: Exception) {
-                e.printStackTrace()
+        } else {
+            // 选中的是原图
+            val matchedNudeFiles = allFiles.filter {
+                it.name.substringBeforeLast(".")
+                    .startsWith("$baseNameWithoutExt-脱衣-")
             }
 
-            Toast.makeText(context, "删除完成", Toast.LENGTH_SHORT).show()
-            refreshFolder()
+            if (matchedNudeFiles.isEmpty()) return null
+
+            val latest = matchedNudeFiles.maxByOrNull { file ->
+                val timestampPart = file.name
+                    .substringBeforeLast(".")
+                    .removePrefix("$baseNameWithoutExt-脱衣-")
+
+                timestampPart.toLongOrNull() ?: 0L
+            } ?: return null
+
+            originFile = selectedFile
+            latestNudeFile = latest
         }
     }
+
+    // ==========================================================
+    // 2️⃣ 选择 2 张 → 直接使用
+    // ==========================================================
+    else if (selectedFiles.size == 2) {
+        originFile = selectedFiles[0]
+        latestNudeFile = selectedFiles[1]
+    }
+
+    else {
+        return null
+    }
+
+    // ==========================================================
+    // 🔍 分辨率校验
+    // ==========================================================
+
+    val w1 = originFile.width?.toIntOrNull()
+    val h1 = originFile.height?.toIntOrNull()
+    val w2 = latestNudeFile.width?.toIntOrNull()
+    val h2 = latestNudeFile.height?.toIntOrNull()
+
+    if (w1 == null || h1 == null || w2 == null || h2 == null) {
+        return null
+    }
+
+    val ratio1 = w1.toFloat() / h1
+    val ratio2 = w2.toFloat() / h2
+    val ratioDiff = kotlin.math.abs(ratio1 / ratio2 - 1f)
+
+    if (ratioDiff > 0.02f) {
+        return null
+    }
+
+    return originFile to latestNudeFile
 }

@@ -1,5 +1,6 @@
 package com.kano.mycomfyui.ui
 
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -17,9 +18,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -92,14 +96,21 @@ fun PerspectiveScreen (
             bottomUrl = bottomFile.net_url
         )
 
-        // TopBar 覆盖在上面
-        TopAppBar(
-            title = { Text("透视模式", fontSize = 18.sp) },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color.White
-            ),
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
+//        Card(
+//            shape = RoundedCornerShape(12.dp), // 圆角半径
+//            colors = CardDefaults.cardColors(containerColor = Color.White), // 白色背景
+//            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp), // 阴影
+//            modifier = Modifier
+//                .padding(start = 16.dp, top = 48.dp) // 距离屏幕顶部和左边
+//        ) {
+//            Text(
+//                text = "透视模式",
+//                fontSize = 16.sp,
+//                color = Color.Black,
+//                modifier = Modifier
+//                    .padding(horizontal = 16.dp, vertical = 8.dp) // 卡片内边距
+//            )
+//        }
     }
 }
 
@@ -207,7 +218,7 @@ fun BottomToolBar(
         modifier = modifier
             .fillMaxWidth()
             .height(70.dp)
-            .background(Color.White)
+            .background(Color.Black)
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
@@ -216,7 +227,7 @@ fun BottomToolBar(
         IconActionButton(
             iconVector = Icons.Default.Refresh, // 你的复原图标
             label = "复原",
-            tint = Color.Black,
+            tint = Color.White,
             itemWidth = 60.dp,
             iconSize = 22.dp,
 
@@ -227,7 +238,7 @@ fun BottomToolBar(
         IconActionButton(
             iconPainter = painterResource(id = if(cleared) R.drawable.visibility else R.drawable.visibility_off),
             label = if(cleared) "显示" else "隐藏",
-            tint = Color.Black,
+            tint = Color.White,
             itemWidth = 60.dp,
             iconSize = 22.dp,
             onClick = { onToggleTopVisibility() }
@@ -236,7 +247,7 @@ fun BottomToolBar(
         IconActionButton(
             iconPainter = painterResource(id = R.drawable.opacity), // 自己准备一个透明度图标
             label = "透明度",
-            tint = Color.Black,
+            tint = Color.White,
             itemWidth = 60.dp,
             iconSize = 22.dp,
             onClick = { onChangeAlpha() }
@@ -260,6 +271,7 @@ fun PerspectiveCanvas(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var baseScale by remember { mutableStateOf(1f) }
+    var lastMultiTouchTime by remember { mutableStateOf(0L) }
 
     LaunchedEffect(restoreTrigger) {
         scale = 1f
@@ -274,26 +286,35 @@ fun PerspectiveCanvas(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = { tap ->
+                        val now = System.currentTimeMillis()
+                        if (now - lastMultiTouchTime < 200) {
+                            // 刚做过双指缩放，忽略误触双击
+                            return@detectTapGestures
+                        }
+                        val canvasWidth = size.width
+                        val canvasHeight = size.height
+
+                        // baseScale 保证图片适应 Canvas
+                        val baseScale = minOf(
+                            canvasWidth / topBitmap.width.toFloat(),
+                            canvasHeight / topBitmap.height.toFloat()
+                        )
+
+                        // 图片居中偏移
+                        val left = (canvasWidth - topBitmap.width * baseScale) / 2f
+                        val top = (canvasHeight - topBitmap.height * baseScale) / 2f
+
                         if (scale != 1f) {
+                            // 缩小回原始状态
                             scale = 1f
                             offset = Offset.Zero
                         } else {
                             val targetScale = 2f
-                            val scaleFactor = targetScale / scale
-
-                            // 重新计算 left, top
-                            val canvasWidth = size.width
-                            val canvasHeight = size.height
-                            val baseScaleLocal = minOf(
-                                canvasWidth / topBitmap.width,
-                                canvasHeight / topBitmap.height
+                            val clickInImage = (tap - Offset(left, top) - offset)
+                            offset = Offset(
+                                x = (topBitmap.width / 2f*baseScale - clickInImage.x*targetScale) ,
+                                y = (topBitmap.height / 2f*baseScale - clickInImage.y*targetScale)
                             )
-                            val left = (canvasWidth - topBitmap.width * baseScaleLocal) / 2f
-                            val top = (canvasHeight - topBitmap.height * baseScaleLocal) / 2f
-
-                            val adjustedCenter = tap - Offset(left, top)
-
-                            offset = offset * scaleFactor + adjustedCenter * (1f - scaleFactor)
                             scale = targetScale
                         }
                         redrawTrigger++
@@ -302,77 +323,71 @@ fun PerspectiveCanvas(
             }
             .pointerInput(Unit) {
                 awaitEachGesture {
-
-                    val down = awaitFirstDown()
+                    awaitFirstDown()
                     var isMultiTouch = false
 
-                    // ---------- 单指开始时立即开启新轨迹 ----------
-                    fun convertToImageSpace(touch: Offset): Offset {
-                        val canvasWidth = size.width
-                        val canvasHeight = size.height
-
-                        baseScale = minOf(
-                            canvasWidth / topBitmap.width.toFloat(),
-                            canvasHeight / topBitmap.height.toFloat()
-                        )
-
-                        val totalScale = baseScale * scale
-                        val left =
-                            (canvasWidth - topBitmap.width * baseScale) / 2f
-                        val top =
-                            (canvasHeight - topBitmap.height * baseScale) / 2f
-
-                        return Offset(
-                            (touch.x - left - offset.x) / totalScale,
-                            (touch.y - top - offset.y) / totalScale
-                        )
-                    }
+                    var initialScale = scale
+                    var initialOffset = offset
+                    var initialDistance = 0f
+                    var initialCentroid = Offset.Zero
 
                     var startedErase = false
 
                     do {
+
                         val event = awaitPointerEvent()
-                        val pointerCount =
-                            event.changes.count { it.pressed }
+                        val pointerCount = event.changes.count { it.pressed }
+
+                        val canvasWidth = size.width
+                        val canvasHeight = size.height
+
+                        // 图片适应 Canvas 的基础缩放
+                        val baseScale = minOf(
+                            canvasWidth / topBitmap.width.toFloat(),
+                            canvasHeight / topBitmap.height.toFloat()
+                        )
+
+                        // 图片居中偏移
+                        val left = (canvasWidth - topBitmap.width * baseScale) / 2f
+                        val top = (canvasHeight - topBitmap.height * baseScale) / 2f
 
                         // ===== 双指逻辑 =====
                         if (pointerCount >= 2) {
-                            isMultiTouch = true
+                            lastMultiTouchTime = System.currentTimeMillis() // 记录双指时间
+                            val positions = event.changes.filter { it.pressed }.map { it.position }
+                            val centroid = positions.reduce { a, b -> a + b } / positions.size.toFloat()
 
-                            val zoom = event.calculateZoom()
-                            val pan = event.calculatePan()
-                            val centroid = event.calculateCentroid()
+                            val dx = positions[0].x - positions[1].x
+                            val dy = positions[0].y - positions[1].y
+                            val distance = kotlin.math.sqrt(dx * dx + dy * dy)
 
-                            val prevScale = scale
-                            scale = (scale * zoom).coerceIn(0.5f, 3f)
-                            val scaleFactor = scale / prevScale
+                            if (!isMultiTouch) {
+                                // 记录初始状态
+                                initialDistance = distance
+                                initialScale = scale
+                                initialOffset = offset
+                                initialCentroid = centroid
+                                isMultiTouch = true
+                            } else if (initialDistance != 0f) {
+                                // 缩放比例
+                                val zoom = distance / initialDistance
+                                val newScale = (initialScale * zoom).coerceIn(0.5f, 3f)
 
-                            // 重新计算 left, top（与绘制时保持一致）
-                            val canvasWidth = size.width
-                            val canvasHeight = size.height
-                            val baseScaleLocal = minOf(
-                                canvasWidth / topBitmap.width,
-                                canvasHeight / topBitmap.height
-                            )
-                            val left = (canvasWidth - topBitmap.width * baseScaleLocal) / 2f
-                            val top = (canvasHeight - topBitmap.height * baseScaleLocal) / 2f
+                                // 保持双指中心对应的图片像素点在屏幕上不动
+                                val imageCoord = (initialCentroid - Offset(left, top) - initialOffset) / initialScale
+                                offset = centroid - imageCoord * newScale - Offset(left, top)
 
-                            val adjustedCenter = centroid - Offset(left, top)
-
-                            // 更新 offset：保持 adjustedCenter 对应的图像点不变，再加 pan
-                            offset = offset * scaleFactor + adjustedCenter * (1f - scaleFactor) + pan
-
-                            redrawTrigger++
+                                scale = newScale
+                            }
                         }
 
                         // ===== 单指擦除 =====
                         else if (!isMultiTouch && pointerCount == 1) {
-
-                            val change =
-                                event.changes.first()
-
-                            val local =
-                                convertToImageSpace(change.position)
+                            val change = event.changes.first()
+                            val local = Offset(
+                                x = (change.position.x - left - offset.x) / (baseScale * scale),
+                                y = (change.position.y - top - offset.y) / (baseScale * scale)
+                            )
 
                             if (!startedErase) {
                                 path.moveTo(local.x, local.y)
@@ -386,6 +401,8 @@ fun PerspectiveCanvas(
                         }
 
                     } while (event.changes.any { it.pressed })
+                    isMultiTouch = false
+                    startedErase = false
                 }
             }
     ) {
@@ -393,6 +410,7 @@ fun PerspectiveCanvas(
 
         val canvasWidth = size.width
         val canvasHeight = size.height
+        val imageSpaceBrush = topBitmap.width * 0.12f
 
         baseScale = minOf(
             canvasWidth / topBitmap.width,
@@ -402,17 +420,19 @@ fun PerspectiveCanvas(
         val totalScale = baseScale * scale
         val left = (canvasWidth - topBitmap.width * baseScale) / 2f
         val top = (canvasHeight - topBitmap.height * baseScale) / 2f
-        val imageSpaceBrush = topBitmap.width * 0.12f
-        val bottomWidthScale =
-            topBitmap.width.toFloat() / bottomBitmap.width.toFloat()
 
-        // ===== 画底图 =====
+// 计算下层图片X/Y缩放，使宽高都对齐上层
+        val scaleX = topBitmap.width.toFloat() / bottomBitmap.width
+        val scaleY = topBitmap.height.toFloat() / bottomBitmap.height
+
+// ===== 画底图 =====
         drawContext.canvas.save()
         drawContext.canvas.translate(left + offset.x, top + offset.y)
         drawContext.canvas.scale(totalScale, totalScale)
 
+// 下层单独缩放到与上层宽高一致（不保留比例）
         drawContext.canvas.save()
-        drawContext.canvas.scale(bottomWidthScale, bottomWidthScale)
+        drawContext.canvas.scale(scaleX, scaleY)
         drawImage(bottomBitmap)
         drawContext.canvas.restore()
 

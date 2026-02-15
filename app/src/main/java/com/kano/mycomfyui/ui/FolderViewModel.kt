@@ -15,7 +15,8 @@ enum class Mode(val value: String) {
     ALL("ALL"),          // 原逻辑
     ORIGIN("ORIGIN"),    // 分组后取名称最短的一张
     NUDE("NUDE"),        // 分组后取最短且名称含 "-脱衣"
-    EDIT("EDIT");        // 只取名称含 "-修图"
+    EDIT("EDIT"),        // 只取名称含 "-修图"
+    VIDEO("VIDEO");        // 只取名称含 "-修图"
 
     companion object {
         fun fromValue(value: String?): Mode {
@@ -118,6 +119,12 @@ fun sortPreviewableFiles(
                 .filter { it.name.contains("-修图") }
                 .sortedByDescending { it.parseTime() }
         }
+
+        Mode.VIDEO -> {
+            validFiles
+                .filter { it.name.lowercase().endsWith(".mp4") }
+                .sortedByDescending { it.parseTime() }
+        }
     }
 }
 
@@ -130,6 +137,7 @@ data class ImageViewerState(
     val sortedFiles: List<FileInfo> = emptyList(),
     val currentIndex: Int = 0,
     val previewPath: String? = null,
+    val previewVideo: String? = null,
     val selectedPaths: Set<String> = emptySet()
 )
 
@@ -288,6 +296,20 @@ class FolderViewModel : ViewModel() {
     fun closePreview() {
         _uiState.update {
             it.copy(previewPath = null)
+        }
+    }
+
+    fun openPreviewVideo(filePath: String) {
+        _uiState.update {
+            it.copy(
+                previewVideo = filePath
+            )
+        }
+    }
+
+    fun closePreviewVideo() {
+        _uiState.update {
+            it.copy(previewVideo = null)
         }
     }
 

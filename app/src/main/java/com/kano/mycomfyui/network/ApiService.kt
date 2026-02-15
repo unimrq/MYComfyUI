@@ -26,9 +26,6 @@ interface ApiService {
         @Query("path") path: String = ""
     ): FolderContent
 
-    @GET("/api/gif_templates")
-    suspend fun getGifTemplates(): List<String>
-
     @POST("/api/generate/{type}")
     suspend fun generateImage(
         @Path("type") type: String,
@@ -74,6 +71,30 @@ interface ApiService {
     @GET("/api/tasks/clear")
     suspend fun clearTasks(): ClearTaskResponse
 
+    @GET("/api/tasks/delete")
+    suspend fun deleteTasks(): ClearTaskResponse
+
+    data class TaskActionResponse(
+        val status: String,
+        val message: String
+    )
+
+    /**
+     * 删除指定任务
+     */
+    @POST("/api/tasks/delete/{task_id}")
+    suspend fun deleteTask(
+        @Path("task_id") taskId: String
+    ): TaskActionResponse
+
+    /**
+     * 置顶指定任务
+     */
+    @POST("/api/tasks/pin/{task_id}")
+    suspend fun pinTask(
+        @Path("task_id") taskId: String
+    ): TaskActionResponse
+
     @POST("/api/tasks/{id}/restart")
     suspend fun restartTask(@Path("id") id: String): RestartResponse
 
@@ -94,6 +115,13 @@ interface ApiService {
     /** 获取快捷词条列表，返回 title + text */
     @GET("/api/prompts")
     suspend fun getPromptList(): List<PromptItem>
+
+    data class WanPromptItem(
+        val title: String = "",
+    )
+
+    @GET("/api/wan_prompts")
+    suspend fun getWanPromptList(): List<WanPromptItem>
 
     /** 新增快捷词条 */
     @POST("/api/prompts")
