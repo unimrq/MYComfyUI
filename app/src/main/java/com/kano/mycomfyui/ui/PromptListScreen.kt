@@ -6,6 +6,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -140,7 +141,7 @@ fun PromptListScreen(
                             importLauncher.launch(arrayOf("application/json"))
                         }
                     ) {
-                        Icon(painter = painterResource(id = R.drawable.download), contentDescription = "导入", modifier = Modifier.size(23.dp))
+                        Icon(painter = painterResource(id = R.drawable.download), contentDescription = "导入", modifier = Modifier.size(20.dp))
                     }
 
 
@@ -149,7 +150,7 @@ fun PromptListScreen(
                             exportLauncher.launch("prompts.json")
                         }
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "导出")
+                        Icon(Icons.Default.Share, contentDescription = "导出", modifier = Modifier.height(22.dp))
                     }
 
                     IconButton(
@@ -161,7 +162,7 @@ fun PromptListScreen(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "新增提示词",
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
@@ -250,7 +251,7 @@ fun importPromptsFromJson(
     return Gson().fromJson(json, type)
 }
 
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PromptListItem(
     item: PromptItem,

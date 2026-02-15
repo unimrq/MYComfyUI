@@ -180,7 +180,7 @@ fun ServerStatusCard() {
                 Log.e("debug", e.message.toString())
                 false
             }
-            Log.d("getServerStatus", alive.toString())
+//            Log.d("getServerStatus", alive.toString())
             if (alive) ServerStatus.ONLINE else ServerStatus.OFFLINE
         } catch (e: Exception) {
             Log.e("debug", e.message.toString())

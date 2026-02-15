@@ -441,8 +441,8 @@ fun StatusOverlay(
                 Icon(
                     painter = painterResource(id = R.drawable.clock),
                     contentDescription = null,
-                    tint = Color(0xFFF97316),
-                    modifier = Modifier.size(24.dp)
+                    tint = Color(0xFFFFAB72),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -480,7 +480,7 @@ fun TaskInfoSection(
                 "执行成功" -> Color(0xFF4CAF50)
                 "执行失败", "执行超时" -> Color(0xFFF44336)
                 "正在执行" -> Color(0xFF0099FF)
-                "追加任务" -> Color(0xFFF97316)
+                "追加任务" -> Color(0xFFFF9C57)
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
 

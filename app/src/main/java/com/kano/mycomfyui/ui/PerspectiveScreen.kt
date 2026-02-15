@@ -1,35 +1,31 @@
 package com.kano.mycomfyui.ui
 
-import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateCentroid
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.BlendMode
@@ -50,10 +47,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.navigation.NavController
@@ -95,22 +94,6 @@ fun PerspectiveScreen (
             topUrl = topFile.net_url,
             bottomUrl = bottomFile.net_url
         )
-
-//        Card(
-//            shape = RoundedCornerShape(12.dp), // 圆角半径
-//            colors = CardDefaults.cardColors(containerColor = Color.White), // 白色背景
-//            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp), // 阴影
-//            modifier = Modifier
-//                .padding(start = 16.dp, top = 48.dp) // 距离屏幕顶部和左边
-//        ) {
-//            Text(
-//                text = "透视模式",
-//                fontSize = 16.sp,
-//                color = Color.Black,
-//                modifier = Modifier
-//                    .padding(horizontal = 16.dp, vertical = 8.dp) // 卡片内边距
-//            )
-//        }
     }
 }
 
@@ -128,7 +111,12 @@ fun PerspectiveCompareView(
     var showTopBitmap by remember { mutableStateOf(true) } // 新增隐藏/显示状态
     var cleared by remember { mutableStateOf(false) }
     var topAlpha by remember { mutableStateOf(1f) }
+    var eraseSize by remember { mutableStateOf(0.12f) }   // 默认大小比例
+    var eraseAlpha by remember { mutableStateOf(0.64f) }     // 默认强度
 
+    var showSizePanel by remember { mutableStateOf(false) }
+    var showAlphaPanel by remember { mutableStateOf(false) }
+    var showTopAlphaPanel by remember { mutableStateOf(false) }
     // 加载上层图片
     LaunchedEffect(topUrl) {
         if (topUrl != null) {
@@ -173,7 +161,9 @@ fun PerspectiveCompareView(
             bottomBitmap = bottomBitmap!!,
             restoreTrigger = restoreTrigger,
             showTopBitmap = showTopBitmap,
-            topAlpha = topAlpha
+            topAlpha = topAlpha,
+            eraseSize = eraseSize,
+            eraseAlpha = eraseAlpha
         )
 
         BottomToolBar(
@@ -189,20 +179,66 @@ fun PerspectiveCompareView(
                 showTopBitmap = !showTopBitmap
                 cleared = !cleared
             },
-            onChangeAlpha = {
-                topAlpha = when (topAlpha) {
-                    0.4f -> 0.2f
-                    0.6f -> 0.4f
-                    0.8f -> 0.6f
-                    1f -> 0.8f
-                    else -> 1f
-                }
+
+            onToggleSizePanel = {
+                showSizePanel = !showSizePanel
+                showAlphaPanel = false
+                showTopAlphaPanel = false
+            },
+
+            onToggleAlphaPanel = {
+                showAlphaPanel = !showAlphaPanel
+                showSizePanel = false
+                showTopAlphaPanel = false
+            },
+
+            onToggleTopAlphaPanel = {
+                showTopAlphaPanel = !showTopAlphaPanel
+                showSizePanel = false
+                showAlphaPanel = false
             },
             cleared = cleared,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .zIndex(1f)
         )
+
+        if (showSizePanel) {
+            SingleSliderPanel(
+                value = eraseSize,
+                onValueChange = { eraseSize = it },
+                valueRange = 0.02f..0.3f,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 90.dp, end = 16.dp)
+                    .zIndex(2f)
+            )
+        }
+
+        if (showAlphaPanel) {
+            SingleSliderPanel(
+                value = eraseAlpha,
+                onValueChange = { eraseAlpha = it },
+                valueRange = 0.1f..1f,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 90.dp, end = 16.dp)
+                    .zIndex(2f)
+            )
+        }
+
+        if (showTopAlphaPanel) {
+            SingleSliderPanel(
+                value = topAlpha,
+                onValueChange = { topAlpha = it },
+                valueRange = 0f..1f,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 90.dp, end = 16.dp)
+                    .zIndex(2f)
+            )
+        }
+
     }
 }
 
@@ -210,7 +246,9 @@ fun PerspectiveCompareView(
 fun BottomToolBar(
     onRestoreClicked: () -> Unit,
     onToggleTopVisibility: () -> Unit,
-    onChangeAlpha: () -> Unit,
+    onToggleTopAlphaPanel: () -> Unit,
+    onToggleSizePanel: () -> Unit,
+    onToggleAlphaPanel: () -> Unit,
     cleared: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -245,12 +283,30 @@ fun BottomToolBar(
         )
 
         IconActionButton(
-            iconPainter = painterResource(id = R.drawable.opacity), // 自己准备一个透明度图标
+            iconPainter = painterResource(id = R.drawable.opacity_image),
             label = "透明度",
             tint = Color.White,
             itemWidth = 60.dp,
             iconSize = 22.dp,
-            onClick = { onChangeAlpha() }
+            onClick = { onToggleTopAlphaPanel() }
+        )
+
+        IconActionButton(
+            iconPainter = painterResource(id = R.drawable.pen),
+            label = "笔刷大小",
+            tint = Color.White,
+            itemWidth = 60.dp,
+            iconSize = 18.dp,
+            onClick = { onToggleSizePanel() }
+        )
+
+        IconActionButton(
+            iconPainter = painterResource(id = R.drawable.opacity),
+            label = "笔刷力度",
+            tint = Color.White,
+            itemWidth = 60.dp,
+            iconSize = 24.dp,
+            onClick = { onToggleAlphaPanel() }
         )
     }
 }
@@ -262,8 +318,9 @@ fun PerspectiveCanvas(
     bottomBitmap: ImageBitmap,
     restoreTrigger: Int,
     showTopBitmap: Boolean,
-    topAlpha: Float
-
+    topAlpha: Float,
+    eraseSize: Float,
+    eraseAlpha: Float
 ) {
     val path = remember { Path() }
     var redrawTrigger by remember { mutableStateOf(0) }
@@ -283,6 +340,7 @@ fun PerspectiveCanvas(
     Canvas(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.Black)  // ← 直接设置背景
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = { tap ->
@@ -410,7 +468,7 @@ fun PerspectiveCanvas(
 
         val canvasWidth = size.width
         val canvasHeight = size.height
-        val imageSpaceBrush = topBitmap.width * 0.12f
+        val imageSpaceBrush = topBitmap.width * eraseSize
 
         baseScale = minOf(
             canvasWidth / topBitmap.width,
@@ -447,18 +505,19 @@ fun PerspectiveCanvas(
 
             drawImage(
                 image = topBitmap,
-                alpha = topAlpha
+                alpha = topAlpha,
+                blendMode = BlendMode.Multiply
             )
 
             drawPath(
                 path = path,
-                color = Color.Transparent,
+                color = Color.White.copy(alpha = eraseAlpha),
                 style = Stroke(
                     width = imageSpaceBrush,
                     cap = StrokeCap.Round,
                     join = StrokeJoin.Round
                 ),
-                blendMode = BlendMode.Clear
+                blendMode = BlendMode.DstOut
             )
 
             drawContext.canvas.restore()
@@ -466,3 +525,140 @@ fun PerspectiveCanvas(
     }
 }
 
+private fun updateValueFromOffset(
+    offsetY: Float,
+    height: Float,
+    paddingPx: Float,
+    thumbSizePx: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    if (height <= 0f) return
+
+    val usableHeight = height - paddingPx * 2
+    val trackHeight = usableHeight - thumbSizePx
+
+    val adjusted = (offsetY - paddingPx - thumbSizePx / 2f)
+        .coerceIn(0f, trackHeight)
+
+    val percent = 1f - (adjusted / trackHeight)
+
+    val newValue =
+        valueRange.start +
+                percent * (valueRange.endInclusive - valueRange.start)
+
+    onValueChange(newValue)
+}
+
+@Composable
+fun SingleSliderPanel(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier
+) {
+    val thumbSize = 14.dp
+    val verticalPadding = 12.dp
+
+    var containerHeightPx by remember { mutableStateOf(0f) }
+
+    val density = LocalDensity.current
+    val thumbSizePx = with(density) { thumbSize.toPx() }
+    val paddingPx = with(density) { verticalPadding.toPx() }
+
+    Box(
+        modifier = modifier
+            .width(36.dp)
+            .height(150.dp),
+        contentAlignment = Alignment.Center
+    ) {
+
+        Box(
+            modifier = Modifier
+                .width(28.dp)
+                .height(120.dp)
+                .background(
+                    Color.DarkGray,
+                    RoundedCornerShape(16.dp)
+                )
+                .onSizeChanged {
+                    containerHeightPx = it.height.toFloat()
+                }
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            updateValueFromOffset(
+                                offset.y,
+                                containerHeightPx,
+                                paddingPx,
+                                thumbSizePx,
+                                valueRange,
+                                onValueChange
+                            )
+                        },
+                        onVerticalDrag = { change, _ ->
+                            updateValueFromOffset(
+                                change.position.y,
+                                containerHeightPx,
+                                paddingPx,
+                                thumbSizePx,
+                                valueRange,
+                                onValueChange
+                            )
+                            change.consume()
+                        }
+                    )
+                }
+        ) {
+            if (containerHeightPx <= 0f) return@Box
+            val usableHeight = containerHeightPx - paddingPx * 2
+            val trackHeight = usableHeight - thumbSizePx
+
+            val percent =
+                ((value - valueRange.start) /
+                        (valueRange.endInclusive - valueRange.start))
+                    .coerceIn(0f, 1f)
+
+// ===== 轨道 =====
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .padding(vertical = verticalPadding)
+                    .background(
+                        Color.LightGray,
+                        RoundedCornerShape(2.dp)
+                    )
+                    .align(Alignment.Center)
+            )
+
+// ===== thumb（从底部算）=====
+            val thumbOffsetPx =
+                paddingPx + trackHeight * (1f - percent)
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset { IntOffset(0, thumbOffsetPx.toInt()) }
+                    .size(thumbSize)
+                    .background(Color.White, CircleShape)
+            )
+
+// ===== 进度条（从底部到 thumb 中心）=====
+            val progressHeightPx =
+                percent * trackHeight + thumbSizePx
+
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(with(density) { progressHeightPx.toDp() })
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = verticalPadding)
+                    .background(
+                        Color.White,
+                        RoundedCornerShape(2.dp)
+                    )
+            )
+        }
+    }
+}

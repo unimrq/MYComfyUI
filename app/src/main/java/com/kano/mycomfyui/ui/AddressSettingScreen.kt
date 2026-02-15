@@ -94,8 +94,6 @@ data class ServerAddress(
 
 }
 
-
-
 // 保存地址列表（JSON 数组形式）
 fun saveAddressList(context: Context, list: List<ServerAddress>) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -185,8 +183,7 @@ fun AddressSettingScreen() {
                         Toast
                             .makeText(context, "已切换地址，请重启 App", Toast.LENGTH_SHORT)
                             .show()
-                    }
-                    ,
+                    },
                     onChange = { updated ->
                         addressList = addressList.toMutableList().apply {
                             set(index, updated)
@@ -227,7 +224,6 @@ fun AddressCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
-
                 modifier = Modifier.fillMaxWidth()
             ) {
 
@@ -243,11 +239,7 @@ fun AddressCard(
                     onCheckedChange = { if (it) onSelect() },
                     modifier = Modifier.scale(0.8f)
                 )
-
             }
-
-
-//            Spacer(Modifier.height(6.dp))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,

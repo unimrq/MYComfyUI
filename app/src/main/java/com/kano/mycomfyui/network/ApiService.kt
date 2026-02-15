@@ -21,6 +21,10 @@ import retrofit2.http.Query
 
 interface ApiService {
 
+    data class ServerStatusResponse(
+        val alive: Boolean = false
+    )
+
     @GET("/api/browse")
     suspend fun browse(
         @Query("path") path: String = ""
@@ -160,12 +164,21 @@ interface ApiService {
         @Field("dest") dest: String
     ): Response<Unit>
 
-    data class ServerStatusResponse(
-        val alive: Boolean
-    )
+    @FormUrlEncoded
+    @POST("/api/file/copy")
+    suspend fun copyFile(
+        @Field("src") src: String,
+        @Field("dest") dest: String
+    ): Response<Unit>
+
+
 
     /** 获取服务器运行状态 */
     @GET("/api/server/status")
     suspend fun getServerStatus(): ServerStatusResponse
 
+    @GET("/api/folders/")
+    suspend fun getFolders(
+        @Query("parent_path") parent_path: String
+    ): List<Folder>
 }

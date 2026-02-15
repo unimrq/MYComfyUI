@@ -30,7 +30,8 @@ fun sortPreviewableFiles(
     files: List<FileInfo>,
     currentPath: String,
     dateFormat: SimpleDateFormat,
-    mode: Mode
+    mode: Mode,
+    sortMode: String // "从旧到新" 或 "从新到旧"
 ): List<FileInfo> {
 
     fun FileInfo.isPreviewable(): Boolean =
@@ -46,9 +47,8 @@ fun sortPreviewableFiles(
     }
 
     fun FileInfo.parseTime(): Long =
-        runCatching {
-            dateFormat.parse(this.date)?.time ?: Long.MAX_VALUE
-        }.getOrDefault(Long.MAX_VALUE)
+        runCatching { dateFormat.parse(this.date)?.time ?: Long.MAX_VALUE }
+            .getOrDefault(Long.MAX_VALUE)
 
     val validFiles = files
         .filter { !it.is_dir }
@@ -58,8 +58,14 @@ fun sortPreviewableFiles(
     val isMp4Only = validFiles.isNotEmpty() &&
             validFiles.all { it.file_url?.endsWith(".mp4", true) == true }
 
+    // 根据 sortMode 决定排序函数
+    val timeComparator: Comparator<FileInfo> = when (sortMode) {
+        "从旧到新" -> compareBy { it.parseTime() }
+        else -> compareByDescending { it.parseTime() } // 默认 "从新到旧"
+    }
+
     if (isMp4Only || currentPath == "修图") {
-        return validFiles.sortedByDescending { it.parseTime() }
+        return validFiles.sortedWith(timeComparator)
     }
 
     // ===== 统一分组（只算一次）=====
@@ -67,20 +73,14 @@ fun sortPreviewableFiles(
 
     // ===== 原图顺序（权威顺序）=====
     val originList = grouped
-        .mapNotNull { (_, group) ->
-            group.minByOrNull { it.name.length }
-        }
-        .sortedByDescending { it.parseTime() }
+        .mapNotNull { (_, group) -> group.minByOrNull { it.name.length } }
+        .sortedWith(timeComparator)
 
     val originOrderMap = originList
-        .mapIndexed { index, file ->
-            getCoreName(file.name) to index
-        }
+        .mapIndexed { index, file -> getCoreName(file.name) to index }
         .toMap()
 
     return when (mode) {
-
-        // ================================
         Mode.ALL -> {
             grouped
                 .toList()
@@ -91,39 +91,40 @@ fun sortPreviewableFiles(
                     group.sortedWith(
                         compareBy<FileInfo> { it.parseTime() }
                             .thenBy { it.name.lowercase() }
+                            .let { comparator ->
+                                if (sortMode == "从旧到新") comparator else comparator.reversed()
+                            }
                     )
                 }
         }
+        
+        Mode.ORIGIN -> originList
 
-        // ================================
-        Mode.ORIGIN -> {
-            originList
-        }
-
-        // ================================
         Mode.NUDE -> {
             grouped
                 .mapNotNull { (_, group) ->
-                    group
-                        .filter { it.name.contains("-脱衣") }
+                    group.filter { it.name.contains("-脱衣") }
                         .minByOrNull { it.name.length }
                 }
-                .sortedBy { file ->
-                    originOrderMap[getCoreName(file.name)] ?: Int.MAX_VALUE
-                }
+                .sortedWith(
+                    if (sortMode == "从旧到新") {
+                        compareBy { it.parseTime() }
+                    } else {
+                        compareByDescending { it.parseTime() }
+                    }
+                )
         }
 
-        // ================================
         Mode.EDIT -> {
             validFiles
                 .filter { it.name.contains("-修图") }
-                .sortedByDescending { it.parseTime() }
+                .sortedWith(timeComparator)
         }
 
         Mode.VIDEO -> {
             validFiles
                 .filter { it.name.lowercase().endsWith(".mp4") }
-                .sortedByDescending { it.parseTime() }
+                .sortedWith(timeComparator)
         }
     }
 }
@@ -244,13 +245,15 @@ class FolderViewModel : ViewModel() {
         content: FolderContent,
         currentPath: String,
         mode: ContentUpdateMode,
-        fileMode: Mode
+        fileMode: Mode,
+        sortMode: String
     ) {
         val files = sortPreviewableFiles(
             files = content.files,
             currentPath = currentPath,
             dateFormat = dateFormat,
-            mode = fileMode
+            mode = fileMode,
+            sortMode = sortMode
         )
 
         _uiState.update {

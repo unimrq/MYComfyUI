@@ -16,6 +16,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["fileProviderAuthority"] = "${applicationId}.fileprovider"
+
     }
 
     buildTypes {
@@ -23,9 +25,13 @@ android {
             // 调试版配置（保持最简）
             isMinifyEnabled = false
             applicationIdSuffix = ".debug" // 可选：避免与 release 包冲突
+            manifestPlaceholders["fileProviderAuthority"] = "com.kano.mycomfyui.debug.fileprovider"
+
         }
         release {
-            isMinifyEnabled = false
+
+            manifestPlaceholders["fileProviderAuthority"] = "com.kano.mycomfyui.fileprovider"
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
