@@ -26,11 +26,13 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug" // 可选：避免与 release 包冲突
             manifestPlaceholders["fileProviderAuthority"] = "com.kano.mycomfyui.debug.fileprovider"
+            resValue("string", "app_name", "Comfy (Debug)")
 
         }
         release {
 
             manifestPlaceholders["fileProviderAuthority"] = "com.kano.mycomfyui.fileprovider"
+            resValue("string", "app_name", "Comfy")
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

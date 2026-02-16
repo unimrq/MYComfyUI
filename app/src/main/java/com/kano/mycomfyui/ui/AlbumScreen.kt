@@ -319,16 +319,16 @@ fun AlbumScreen(
         savePath(currentTab, requestedPath)
 
         // 1️⃣ 本地缓存
-        getFolderCache(requestedPath)?.let { cached ->
-
-            viewModel.updateFolderContent(
-                content = cached,
-                currentPath = requestedPath,
-                mode = FolderViewModel.ContentUpdateMode.REFRESH,
-                fileMode = fileMode,
-                sortMode = sortMode.toString()
-            )
-        }
+//        getFolderCache(requestedPath)?.let { cached ->
+//
+//            viewModel.updateFolderContent(
+//                content = cached,
+//                currentPath = requestedPath,
+//                mode = FolderViewModel.ContentUpdateMode.REFRESH,
+//                fileMode = fileMode,
+//                sortMode = sortMode.toString()
+//            )
+//        }
 
         try {
             val serverContent =
@@ -345,7 +345,7 @@ fun AlbumScreen(
 
                 )
 
-                saveFolderCache(requestedPath, serverContent)
+//                saveFolderCache(requestedPath, serverContent)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -1525,7 +1525,7 @@ fun AlbumScreen(
 
                                                     multiSelectMode = false
 
-                                                    refreshFolder(uiState.currentPath)
+//                                                    refreshFolder(uiState.currentPath)
 
                                                 } else {
                                                     // =========================
@@ -1548,7 +1548,7 @@ fun AlbumScreen(
                                                     viewModel.deleteSingleAndUpdatePreview(
                                                         file = fileToDelete
                                                     )
-                                                    refreshFolder(uiState.currentPath)
+//                                                    refreshFolder(uiState.currentPath)
 
                                                     gridState.scrollToItem(firstVisibleIndex, firstVisibleOffset)
                                                 }
@@ -1850,7 +1850,6 @@ fun AlbumScreen(
         NudeModeBottomSheet(
             onDismiss = { showNudeSheet = false },
             onCreativeModeClick = { params ->
-                showNudeSheet = false
                 scope.launch {
                     performNudeGeneration(
                         context = context,
@@ -1867,6 +1866,7 @@ fun AlbumScreen(
                         params = params
                     )
                 }
+                showNudeSheet = false
             }
         )
     }
