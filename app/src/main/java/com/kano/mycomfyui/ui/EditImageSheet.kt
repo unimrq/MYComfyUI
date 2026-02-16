@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ import com.kano.mycomfyui.network.RetrofitClient
 import kotlinx.coroutines.launch
 import kotlin.text.toBoolean
 import androidx.core.content.edit
+import androidx.navigation.NavController
 
 
 class EditPrefs(context: Context) {
@@ -76,7 +78,8 @@ class EditPrefs(context: Context) {
 fun EditImageSheet(
     imageUrls: List<String>,
     thumbnailUrls: List<String>,
-    onDismiss: () -> Unit
+    navController: NavController,
+    onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -218,6 +221,10 @@ fun EditImageSheet(
                         onClick = {
                             selectedItems =
                                 if (selected) selectedItems - item else selectedItems + item
+                        },
+                        onLongClick = {
+                            onDismiss()
+                            navController.navigate("prompt_edit/${item.title}")
                         }
                     )
                 }
@@ -268,7 +275,7 @@ fun EditImageSheet(
 
                         // 👇 关键：自定义颜色
                         colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = MaterialTheme.colorScheme.primary,
+                            activeContainerColor = Color(0xFF3965B0),
                             activeContentColor = Color.White,
                             inactiveContainerColor = Color.Transparent,
                             inactiveContentColor = MaterialTheme.colorScheme.onSurface
@@ -414,15 +421,15 @@ fun TinyTag(
     useCount: Int,
     selected: Boolean,
     maxCount: Int = 30,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null // 新增长按回调，可选
 ) {
     val fraction = (useCount.toFloat() / maxCount).coerceIn(0f, 1f)
 
-    val deepColor = Color(0xFF99ADE0)
-    val lightColor = Color.White
+    val deepColor = Color(0xFFB5B5B7)
+    val lightColor = Color(0xFFE8E8EB)
 
     val bgColor = if (selected) {
-        // 选中状态固定红棕色
         Color(0xFFB22222)
     } else {
         lerp(lightColor, deepColor, fraction)
@@ -431,7 +438,10 @@ fun TinyTag(
     Box(
         modifier = Modifier
             .background(bgColor, shape = RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(   // 使用 combinedClickable 支持长按和点击
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .padding(horizontal = 4.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {

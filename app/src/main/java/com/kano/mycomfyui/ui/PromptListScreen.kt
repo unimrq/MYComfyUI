@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Share
@@ -31,7 +32,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,7 +57,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.kano.mycomfyui.R
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PromptListScreen(
     navController: NavController
@@ -64,6 +68,8 @@ fun PromptListScreen(
     var items by remember { mutableStateOf<List<PromptItem>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deletingItem by remember { mutableStateOf<PromptItem?>(null) }
+
+    var searchText by remember { mutableStateOf("") } // 搜索框内容
 
     fun load() {
         scope.launch {
@@ -130,11 +136,17 @@ fun PromptListScreen(
 
     LaunchedEffect(Unit) { load() }
 
+    val filteredItems = items.filter {
+        it.title.contains(searchText, ignoreCase = true) ||
+                it.text.contains(searchText, ignoreCase = true)
+    }
+
     Scaffold(
         modifier = Modifier.background(Color.White),
         topBar = {
             TopAppBar(
                 title = { Text("提示词") },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
                 actions = {
                     IconButton(
                         onClick = {
@@ -150,7 +162,7 @@ fun PromptListScreen(
                             exportLauncher.launch("prompts.json")
                         }
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = "导出", modifier = Modifier.height(22.dp))
+                        Icon(Icons.Default.Share, contentDescription = "导出", modifier = Modifier.height(20.dp))
                     }
 
                     IconButton(
@@ -170,30 +182,58 @@ fun PromptListScreen(
         }
     ) { padding ->
 
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .background(Color.White)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            items(items) { item ->
-                PromptListItem(
-                    item = item,
-                    onClick = {
-                        navController.navigate(
-                            "prompt_edit/${Uri.encode(item.title)}"
-                        )
-                    },
-                    onLongPress = {
-                        deletingItem = item
-                        showDeleteDialog = true
-                    }
-                )
+
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    // 顶部搜索框
+                    TextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        placeholder = { Text("搜索提示词") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp), // ✅ 这里直接设置圆角
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.LightGray,
+                            unfocusedContainerColor = Color.LightGray,
+                            cursorColor = Color(0xFF4A80F0),
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .background(Color.LightGray, shape = RoundedCornerShape(16.dp))
+                    )
+
+                }
+
+                items(filteredItems) { item ->
+                    PromptListItem(
+                        item = item,
+                        onClick = {
+                            navController.navigate(
+                                "prompt_edit/${Uri.encode(item.title)}"
+                            )
+                        },
+                        onLongPress = {
+                            deletingItem = item
+                            showDeleteDialog = true
+                        }
+                    )
+                }
             }
         }
     }
 
-    // 删除确认弹窗
+    // 删除确认弹窗保持不变
     if (showDeleteDialog && deletingItem != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -210,7 +250,6 @@ fun PromptListScreen(
                             } catch (e: Exception) {
                                 Toast.makeText(context, "删除失败", Toast.LENGTH_SHORT).show()
                                 Log.e("debug", e.message.toString())
-
                             }
                         }
                         showDeleteDialog = false

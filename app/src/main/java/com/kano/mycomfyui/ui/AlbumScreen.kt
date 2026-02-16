@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -159,6 +160,8 @@ import java.io.InputStream
 import java.net.URL
 import java.text.Collator
 import java.text.SimpleDateFormat
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -263,6 +266,13 @@ fun AlbumScreen(
             modePrefs.getString("sortMode", "从旧到新")
         )
     }
+
+    var folderMode by remember {
+        mutableStateOf(
+            modePrefs.getString("folderMode", "按名称")
+        )
+    }
+
     var copyOrCut by remember { mutableStateOf("") }
 
     var showCutDialog by remember { mutableStateOf(false) }
@@ -719,10 +729,10 @@ fun AlbumScreen(
                                         expanded = expanded1,
                                         onDismissRequest = { expanded1 = false },
                                         modifier = Modifier
-                                            .width(180.dp) // 控制整体宽度
-                                            .background(Color.White)
-                                            .padding(horizontal = 8.dp, vertical = 4.dp), // 紧凑一点的内边距
-                                        offset = DpOffset(x = (120.dp), y = 0.dp) // 负的 x 偏移贴右
+                                            .width(240.dp) // 控制整体宽度
+                                            .background(Color(0xFFEEEEEE))
+                                            .padding(horizontal = 18.dp, vertical = 4.dp), // 紧凑一点的内边距
+                                        offset = DpOffset(x = (48.dp), y = 0.dp) // 负的 x 偏移贴右
 
                                     ) {
                                         Column(modifier = Modifier.padding(4.dp)) {
@@ -762,7 +772,7 @@ fun AlbumScreen(
                                                             ),
                                                             shape = RoundedCornerShape(10.dp), // ✅ 设置圆角大小
                                                             modifier = Modifier
-                                                                .weight(1f)
+                                                                .wrapContentHeight()
                                                                 .height(28.dp), // 紧凑高度
                                                             contentPadding = PaddingValues(vertical = 0.dp)
                                                         ) {
@@ -777,7 +787,7 @@ fun AlbumScreen(
                                                 Spacer(modifier = Modifier.height(6.dp))
                                             }
 
-                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Spacer(modifier = Modifier.height(2.dp))
 
                                             // 第二组：图片列数
                                             Text("图片列数", fontWeight = FontWeight.Medium, fontSize = 14.sp)
@@ -807,7 +817,7 @@ fun AlbumScreen(
                                                         ),
                                                         shape = RoundedCornerShape(10.dp), // ✅ 设置圆角大小
                                                         modifier = Modifier
-                                                            .weight(1f)
+                                                            .wrapContentHeight()
                                                             .height(28.dp),
                                                         contentPadding = PaddingValues(vertical = 0.dp)
                                                     ) {
@@ -819,7 +829,7 @@ fun AlbumScreen(
                                             Spacer(modifier = Modifier.height(8.dp))
 
                                             // 第二组：图片列数
-                                            Text("排序方式", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                            Text("图片排序方式", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                                             Spacer(modifier = Modifier.height(6.dp))
 
                                             val sortModes = listOf("从旧到新", "从新到旧")
@@ -848,7 +858,7 @@ fun AlbumScreen(
                                                         ),
                                                         shape = RoundedCornerShape(10.dp), // ✅ 设置圆角大小
                                                         modifier = Modifier
-                                                            .weight(1f)
+                                                            .wrapContentHeight()
                                                             .height(28.dp),
                                                         contentPadding = PaddingValues(vertical = 0.dp)
                                                     ) {
@@ -856,6 +866,48 @@ fun AlbumScreen(
                                                     }
                                                 }
                                             }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            Text("目录排序方式", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            val folderModes = listOf("按时间", "按名称")
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                folderModes.forEach { mode ->
+                                                    Button(
+                                                        onClick = {
+                                                            folderMode = mode
+                                                            modePrefs.edit {
+                                                                putString(
+                                                                    "folderMode",
+                                                                    mode
+                                                                )
+                                                            }
+                                                            scope.launch { refreshFolder(uiState.currentPath) }
+
+                                                            expanded1 = false
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = if (folderMode == mode) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                                            contentColor = if (folderMode == mode) Color.White else Color.Black
+                                                        ),
+                                                        shape = RoundedCornerShape(10.dp), // ✅ 设置圆角大小
+                                                        modifier = Modifier
+                                                            .wrapContentHeight()
+                                                            .height(28.dp),
+                                                        contentPadding = PaddingValues(vertical = 0.dp)
+                                                    ) {
+                                                        Text(mode, fontSize = 12.sp)
+                                                    }
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(8.dp))
+
                                         }
                                     }
                                 }
@@ -877,7 +929,7 @@ fun AlbumScreen(
                                         onDismissRequest = { expanded = false },
                                         modifier = Modifier
                                             .width(90.dp)
-                                            .background(Color.White),
+                                            .background(Color(0xFFEEEEEE))
                                     ) {
 
                                         DropdownMenuItem(
@@ -951,8 +1003,6 @@ fun AlbumScreen(
 
         }
     ) {
-
-
         Box (
             modifier = Modifier
                 .fillMaxSize()
@@ -964,8 +1014,8 @@ fun AlbumScreen(
                             val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
                             scope.launch {
                                 val newIndex = when {
-                                    dragAmount > 30 && currentIndex > 0 -> currentIndex - 1
-                                    dragAmount < -30 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
+                                    dragAmount > 50 && currentIndex > 0 -> currentIndex - 1
+                                    dragAmount < -50 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
                                     else -> return@launch
                                 }
 
@@ -992,11 +1042,28 @@ fun AlbumScreen(
 
                         val collator = Collator.getInstance(Locale.CHINA)
 
-                        val sortedFolders = content.folders
-                            .map { FileInfo(name = it.name, is_dir = true, path = it.path) }
-                            .sortedWith { a, b ->
-                                collator.compare(a.name, b.name)
+                        val formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+                        val sortedFolders = when (folderMode) {
+                            "按时间" -> content.folders.sortedWith { a, b ->
+                                try {
+                                    val timeA = a.updated_at?.let { LocalDateTime.parse(it, formatter) }
+                                    val timeB = b.updated_at?.let { LocalDateTime.parse(it, formatter) }
+
+                                    // 如果时间为空，就用极小时间代替，确保不会 NPE
+                                    val safeTimeA = timeA ?: LocalDateTime.MIN
+                                    val safeTimeB = timeB ?: LocalDateTime.MIN
+
+                                    val cmp = safeTimeB.compareTo(safeTimeA) // 降序
+                                    if (cmp != 0) cmp else collator.compare(a.name ?: "", b.name ?: "")
+                                } catch (e: Exception) {
+                                    0 // 出错就认为相等，不影响排序
+                                }
                             }
+                            else -> content.folders.sortedWith { a, b ->
+                                collator.compare(a.name ?: "", b.name ?: "")
+                            }
+                        }
 
                         val allItems = sortedFolders + uiState.sortedFiles
                         val fileCoordsMap = remember { mutableStateMapOf<String, LayoutCoordinates>() }
@@ -1051,6 +1118,21 @@ fun AlbumScreen(
                                     gridPaddingTop = 108.dp,
                                     gridPaddingBottom = 64.dp
                                 ) {
+                                    if (allItems.isEmpty()) {
+                                        // 空状态全屏显示
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(top = 108.dp, bottom = 64.dp), // 保持和 Grid 一样的 padding
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "无文件夹或媒体文件",
+                                                fontSize = 16.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
 
                                     fun getItemIndexAndFileByPreviewPath(path: String?): Pair<Int, FileInfo?> {
                                         if (path == null) return -1 to null
@@ -1094,6 +1176,11 @@ fun AlbumScreen(
                                         verticalArrangement = Arrangement.spacedBy(1.dp),
                                         horizontalArrangement = Arrangement.spacedBy(1.dp)
                                     ) {
+                                        if (allItems.isEmpty()) {
+                                            item {
+
+                                            }
+                                        }
                                         items(allItems, key = { it.path }) { file ->
                                             val url = file.file_url?.let { "${ServerConfig.baseUrl}$it" }
 
@@ -1386,8 +1473,9 @@ fun AlbumScreen(
                                             }
 
                                         }
-
                                     }
+
+
                                 }
                             }
                         }
@@ -1705,7 +1793,8 @@ fun AlbumScreen(
         ) {
             EditImageSheet(
                 imageUrls = generateImageUrls,
-                thumbnailUrls = generateThumbnailUrls
+                thumbnailUrls = generateThumbnailUrls,
+                navController = navController
             ) {
                 showEditSheet = false
             }
@@ -1813,58 +1902,6 @@ fun AlbumScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
 
-                    // --- 换衣 ---
-                    item {
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.clothes),
-                            tint = Color.Black,
-                            label = "脱衣",
-                            contentDescription = "脱衣",
-                            iconSize = 19.dp,
-                            itemWidth = itemWidth,
-                        ) {
-                            if (hasMp4File(uiState.selectedPaths)) {
-                                Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
-                                return@IconActionButton
-                            }
-
-                            if (uiState.selectedPaths.isNotEmpty()) {
-                                showNudeSheet = true
-                            } else {
-                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-
-                    item {
-                        IconActionButton(
-                            iconPainter = painterResource(id = R.drawable.picture),
-                            tint = Color.Black,
-                            label = "修图",
-                            contentDescription = "修图",
-                            iconSize = 22.dp,
-                            itemWidth = itemWidth,
-                        ) {
-                            if (hasMp4File(uiState.selectedPaths)) {
-                                Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
-                                return@IconActionButton
-                            }
-                            if (uiState.selectedPaths.isNotEmpty()) {
-                                generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
-                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
-                                }
-                                generateThumbnailUrls = uiState.selectedPaths.mapNotNull { path ->
-                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
-                                }
-
-                                showEditSheet = true  // ✅ 弹出修图界面
-                            } else {
-                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
-                            }
-                            multiSelectMode = false
-                        }
-                    }
-
                     item {
                         IconActionButton(
                             iconPainter = painterResource(id = R.drawable.layers),
@@ -1914,6 +1951,58 @@ fun AlbumScreen(
 
                             navController.navigate("image_perspective")
 
+                            multiSelectMode = false
+                        }
+                    }
+
+                    // --- 换衣 ---
+                    item {
+                        IconActionButton(
+                            iconPainter = painterResource(id = R.drawable.clothes),
+                            tint = Color.Black,
+                            label = "脱衣",
+                            contentDescription = "脱衣",
+                            iconSize = 19.dp,
+                            itemWidth = itemWidth,
+                        ) {
+                            if (hasMp4File(uiState.selectedPaths)) {
+                                Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
+                                return@IconActionButton
+                            }
+
+                            if (uiState.selectedPaths.isNotEmpty()) {
+                                showNudeSheet = true
+                            } else {
+                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+
+                    item {
+                        IconActionButton(
+                            iconPainter = painterResource(id = R.drawable.picture),
+                            tint = Color.Black,
+                            label = "修图",
+                            contentDescription = "修图",
+                            iconSize = 22.dp,
+                            itemWidth = itemWidth,
+                        ) {
+                            if (hasMp4File(uiState.selectedPaths)) {
+                                Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
+                                return@IconActionButton
+                            }
+                            if (uiState.selectedPaths.isNotEmpty()) {
+                                generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
+                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
+                                }
+                                generateThumbnailUrls = uiState.selectedPaths.mapNotNull { path ->
+                                    folderContent?.files?.find { it.file_url == path || it.path == path }?.thumbnail_url
+                                }
+
+                                showEditSheet = true  // ✅ 弹出修图界面
+                            } else {
+                                Toast.makeText(context, "未选中任何图片", Toast.LENGTH_SHORT).show()
+                            }
                             multiSelectMode = false
                         }
                     }
@@ -2427,21 +2516,6 @@ fun GridWithVerticalScrollHandleOverlay(
     gridPaddingBottom: Dp = 64.dp, // 轨道底部 padding
     content: @Composable (LazyGridState) -> Unit
 ) {
-
-    if (allItems.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "无文件夹或媒体文件",
-                color = Color.Gray,
-                fontSize = 16.sp
-            )
-        }
-        return
-    }
 
     val scope = rememberCoroutineScope()
     var handleOffset by remember { mutableStateOf(0f) }

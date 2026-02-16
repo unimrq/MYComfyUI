@@ -10,6 +10,7 @@ data class FileInfo(
     val thumbnail_url: String? = "",
     val file_url: String? = "",
     val date: String? = "",
+    val updated_at: String? = "",
     val width: String? = "",
     val height: String? = ""
 ) {

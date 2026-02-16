@@ -66,7 +66,10 @@ interface ApiService {
     ): ResponseBody
 
     @GET("/api/tasks")
-    suspend fun getTasks(): List<TaskInfo>
+    suspend fun getTasks(
+        @Query("page") page: Int = 1,
+        @Query("size") size: Int = 20
+    ): List<TaskInfo>
 
     data class ClearTaskResponse(
         val status: String,

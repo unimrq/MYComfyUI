@@ -18,19 +18,24 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,14 +44,19 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +77,7 @@ import coil.compose.AsyncImage
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.network.RetrofitClient
 import com.kano.mycomfyui.network.ServerConfig
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -84,6 +95,7 @@ data class TaskInfo(
     val thumbnailUrl: String?,
     val start_time: String?,
     val end_time: String?,
+    val run_time: String?,
     val result: String?
 )
 
@@ -112,28 +124,47 @@ fun TaskScreen(
         skipPartiallyExpanded = true
     )
 
-    suspend fun loadTasks() {
+    // lazy
+    var page by remember { mutableStateOf(1) }          // 当前页码
+    val pageSize = 20                                   // 每页数量
+    var isLoading by remember { mutableStateOf(false) } // 是否正在加载
+    var endReached by remember { mutableStateOf(false) } // 是否已经没有更多数据
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    val gridState = rememberLazyGridState()
+
+    val showScrollToTop by remember {
+        derivedStateOf { gridState.firstVisibleItemIndex > 5 } // 超过5条才显示
+    }
+
+    suspend fun loadTasks(reset: Boolean = false) {
+        if (isLoading) return
+        isLoading = true
+
+        if (reset) {
+            page = 1
+            endReached = false
+        }
+
         try {
             val api = RetrofitClient.getApi()
-            val resp = api.getTasks()
+            val resp = api.getTasks(page = page, size = pageSize)
 
-            val formatter = DateTimeFormatter.ISO_DATE_TIME
+            if (reset) {
+                taskList = resp.sortedByDescending { it.start_time }
+            } else {
+                taskList = (taskList + resp).sortedByDescending { it.start_time }
+            }
 
-            taskList = resp.sortedWith(
-                compareByDescending<TaskInfo> { it.status == "正在执行" }
-                    .thenByDescending { task ->
-                        try {
-                            task.start_time?.let {
-                                LocalDateTime.parse(it, formatter)
-                            } ?: LocalDateTime.MIN
-                        } catch (e: Exception) {
-                            LocalDateTime.MIN
-                        }
-                    }
-            )
+            page++
+            if (resp.size < pageSize) {
+                endReached = true
+            }
 
         } catch (e: Exception) {
             e.printStackTrace()
+        } finally {
+            isLoading = false
         }
     }
 
@@ -142,14 +173,10 @@ fun TaskScreen(
         scope.launch {
             try {
                 val api = RetrofitClient.getApi()
-                val resp = api.deleteTask(taskId)
-                if (resp.status == "success") {
-                    // 刷新任务列表
-                    loadTasks()
-                    // 关闭 BottomSheet
-                    selectedTask = null
-                    sheetState.hide()
-                }
+                api.deleteTask(taskId)
+                loadTasks(true)
+                selectedTask = null
+                sheetState.hide()
             } catch (e: Exception) { e.printStackTrace() }
         }
     }
@@ -161,8 +188,7 @@ fun TaskScreen(
                 val resp = api.pinTask(taskId)
                 if (resp.status == "success") {
                     // 刷新任务列表
-                    loadTasks()
-                    // 关闭 BottomSheet
+                    loadTasks(true)
                     selectedTask = null
                     sheetState.hide()
                 }
@@ -176,8 +202,7 @@ fun TaskScreen(
                 val api = RetrofitClient.getApi()
                 val resp = api.restartTask(taskId)
                 if (resp.success) {
-                    loadTasks()
-                    // 可选：重启任务后也关闭 BottomSheet
+                    loadTasks(true)
                     selectedTask = null
                     sheetState.hide()
                 }
@@ -185,19 +210,25 @@ fun TaskScreen(
         }
     }
 
-    LaunchedEffect(navBackStackEntry) {
-        while (isActive) { // 使用 isActive 判断协程是否仍然活跃
-            try {
-                loadTasks()
-            } catch (e: Exception) {
-                e.printStackTrace()
+
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex != null && lastVisibleIndex >= taskList.size - 1) {
+                    loadTasks()
+                }
             }
-            kotlinx.coroutines.delay(1000) // 每 1 秒刷新一次
-        }
     }
 
 
+    LaunchedEffect(navBackStackEntry) {
+        loadTasks(reset = true)
+    }
+
     setTopBar("任务管理", false, false, {}, {}, {}, {})
+
+    // ---- 下拉刷新状态 ----
+    val pullRefreshState = rememberPullToRefreshState()
 
     Scaffold(
         topBar = {
@@ -213,6 +244,7 @@ fun TaskScreen(
                             try {
                                 val api = RetrofitClient.getApi()
                                 val response = api.clearTasks()
+                                loadTasks(reset = true) // 刷新任务列表
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
@@ -230,6 +262,7 @@ fun TaskScreen(
                             try {
                                 val api = RetrofitClient.getApi()
                                 val response = api.deleteTasks()
+                                loadTasks(reset = true) // 刷新任务列表
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
@@ -247,28 +280,93 @@ fun TaskScreen(
             )
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 100.dp), // 自动适配列数
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color.White),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-            contentPadding = PaddingValues(0.dp)
-        ) {
-            items(taskList) { task ->
-                TaskGridItem(
-                    task = task,
-                    onClick = {
-                        selectedTask = task
-                        scope.launch {
-                            sheetState.show()
-                        }
+
+        Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    scope.launch {
+                        isRefreshing = true
+                        loadTasks(reset = true)
+                        delay(300)
+                        isRefreshing = false
                     }
-                )
+                },
+                state = pullRefreshState,
+                indicator = {
+                    Indicator(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 0.dp),
+                        isRefreshing = isRefreshing,
+                        containerColor = Color.White,
+                        color = Color(0xFF0066FF),
+                        state = pullRefreshState
+                    )
+                },
+                modifier = Modifier.fillMaxSize().padding(top = 104.dp)
+            ) {
+
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 100.dp),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize().background(Color.White),
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    contentPadding = PaddingValues(
+                        bottom = 16.dp // 底部空白
+                    )
+                ) {
+                    items(taskList) { task ->
+                        TaskGridItem(
+                            task = task,
+                            onClick = {
+                                selectedTask = task
+                                scope.launch { sheetState.show() }
+                            }
+                        )
+                    }
+
+//                    if (isLoading) {
+//                        item {
+//                            Box(
+//                                modifier = Modifier
+//                                    .fillMaxWidth()
+//                                    .padding(16.dp),
+//                                contentAlignment = Alignment.Center
+//                            ) {
+//                                CircularProgressIndicator()
+//                            }
+//                        }
+//                    }
+
+
+                }
+            }
+            if (showScrollToTop) {
+                FloatingActionButton(
+                    onClick = {
+                        scope.launch { gridState.animateScrollToItem(0) }
+                    },
+                    modifier = Modifier
+                        .padding(bottom = 48.dp, end = 24.dp)
+                        .align(Alignment.BottomEnd)
+                        .size(52.dp),
+                    containerColor = Color.White,  // 半透明白色背景
+                    contentColor = Color.Black, // 主题主色图标
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(8.dp) // 提升浮动感
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.top),
+                        contentDescription = "回到顶部",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
+
+
 
         selectedTask?.let { task ->
             ModalBottomSheet(
@@ -557,14 +655,21 @@ fun TaskInfoSection(
         // ===== 时间 =====
         task.start_time?.let {
             InfoRow(
-                label = "开始时间",
+                label = "任务加入时间",
+                value = formatTime(it)
+            )
+        }
+
+        task.run_time?.let {
+            InfoRow(
+                label = "任务开始时间",
                 value = formatTime(it)
             )
         }
 
         task.end_time?.let {
             InfoRow(
-                label = "结束时间",
+                label = "任务结束时间",
                 value = formatTime(it)
             )
         }

@@ -2,6 +2,7 @@ package com.kano.mycomfyui.ui
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -145,6 +146,7 @@ fun AddressSettingScreen() {
     ) }
 
     Scaffold(
+        containerColor = Color.White,  // ✅ Material3 推荐的设置背景方式
         topBar = {
             TopAppBar(
                 title = { Text("地址设置") },
@@ -157,6 +159,7 @@ fun AddressSettingScreen() {
                 .padding(padding)
                 .padding(16.dp)
                 .fillMaxSize()
+                .background(Color.White)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -209,7 +212,7 @@ fun AddressCard(
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (selected)
-                Color(0xFFE3F2FD)
+                Color(0xFFDCE8FF)
             else
                 Color(0xFFF8F8F8)
         ),
@@ -218,7 +221,7 @@ fun AddressCard(
     ) {
         Column(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 2.dp)
+                .padding(horizontal = 16.dp, vertical = 0.dp)
         ) {
 
             Row(
@@ -231,13 +234,13 @@ fun AddressCard(
                     text = "地址 ${index + 1}",
                     fontSize = 16.sp,
                     color = Color(0xFF3965B0),
-                    modifier = Modifier.padding(start = 0.dp,end = 8.dp)
+                    modifier = Modifier.padding(start = 8.dp,end = 8.dp)
                 )
                 // ===== 地址是否启用 =====
                 Switch(
                     checked = selected,
                     onCheckedChange = { if (it) onSelect() },
-                    modifier = Modifier.scale(0.8f)
+                    modifier = Modifier.scale(0.6f)
                 )
             }
 
@@ -249,7 +252,7 @@ fun AddressCard(
                 Box(
                     modifier = Modifier
                         .width(85.dp)
-                        .height(32.dp)
+                        .height(24.dp)
                         .clickable {
                             val newScheme = if (data.scheme == "https://") "http://" else "https://"
                             onChange(data.copy(scheme = newScheme))
@@ -269,7 +272,7 @@ fun AddressCard(
                     placeholder  = { Text("服务器地址", fontSize = 14.sp) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(56.dp), // ✅ 控制高度
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = Color.Transparent,     // ✅ 去掉聚焦下划线
                         unfocusedIndicatorColor = Color.Transparent,   // ✅ 去掉未聚焦下划线
@@ -294,7 +297,7 @@ fun AddressCard(
                     placeholder  = { Text("无密钥可留空", fontSize = 14.sp) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
                     textStyle = MaterialTheme.typography.bodyMedium,
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = Color.Transparent,     // ✅ 去掉聚焦下划线
