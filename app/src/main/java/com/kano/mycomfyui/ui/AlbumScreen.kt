@@ -277,6 +277,9 @@ fun AlbumScreen(
     var showCutDialog by remember { mutableStateOf(false) }
     var showMoreSheet by remember { mutableStateOf(false) }
 
+    var showPerspective by remember { mutableStateOf(false) }
+    var perspectiveFiles by remember { mutableStateOf<List<FileInfo>?>(null) }
+
     data class CachedFolder(
         val content: FolderContent,
         val timestamp: Long
@@ -601,6 +604,13 @@ fun AlbumScreen(
             multiSelectMode -> {
                 viewModel.clearSelection()
                 multiSelectMode = false
+                showMoreSheet = false
+            }
+
+            showPerspective == true -> {
+                showPerspective = false
+                perspectiveFiles = null
+                isTopBarVisible = !isTopBarVisible
                 showMoreSheet = false
             }
 
@@ -1755,6 +1765,18 @@ fun AlbumScreen(
             }
         }
 
+        if (showPerspective && perspectiveFiles != null) {
+            PerspectiveScreen(
+                files = perspectiveFiles!!,
+                onClose = {
+                    showPerspective = false
+                    perspectiveFiles = null
+                    showMoreSheet = false
+                    isTopBarVisible = !isTopBarVisible
+                }
+            )
+        }
+
         if (uiState.previewPath != null) {
             ImageDetailScreen(
                 sortedFiles  = uiState.sortedFiles,
@@ -1875,8 +1897,6 @@ fun AlbumScreen(
     )
 
 
-
-
     if (showNudeSheet) {
         NudeModeBottomSheet(
             onDismiss = { showNudeSheet = false },
@@ -1975,13 +1995,18 @@ fun AlbumScreen(
                             }
 
                             val (originFile, latestNudeFile) = result
-
-                            navController.currentBackStackEntry
-                                ?.savedStateHandle
-                                ?.set("perspective_files", listOf(originFile, latestNudeFile))
-
-                            navController.navigate("image_perspective")
-
+//
+//                            navController.currentBackStackEntry
+//                                ?.savedStateHandle
+//                                ?.set("perspective_files", listOf(originFile, latestNudeFile))
+//
+//                            navController.navigate("image_perspective")
+//
+//                            multiSelectMode = false
+                            isTopBarVisible = !isTopBarVisible
+                            showMoreSheet = false
+                            perspectiveFiles = listOf(originFile, latestNudeFile)
+                            showPerspective = true
                             multiSelectMode = false
                         }
                     }

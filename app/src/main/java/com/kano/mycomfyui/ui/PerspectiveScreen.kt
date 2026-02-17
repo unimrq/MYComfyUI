@@ -20,9 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -62,21 +66,13 @@ import coil.request.SuccessResult
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
 
-enum class ToolMode {
-    TRANSFORM, ERASE
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PerspectiveScreen (
-    navController: NavController
-){
-
-    val files =
-        navController.previousBackStackEntry
-            ?.savedStateHandle
-            ?.get<List<FileInfo>>("perspective_files")
-            ?: emptyList()
+fun PerspectiveScreen(
+    files: List<FileInfo>,
+    onClose: () -> Unit
+) {
 
     if (files.size != 2) {
         Text("数据异常")
@@ -85,14 +81,15 @@ fun PerspectiveScreen (
 
     // 文件名长度排序
     val sorted = files.sortedBy { it.name.length }
-    val topFile = sorted[0]     // 文件名短 → 上层
-    val bottomFile = sorted[1]  // 文件名长 → 下层
+    val topFile = sorted[0]
+    val bottomFile = sorted[1]
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // 内容
+    Box(modifier = Modifier.fillMaxSize().zIndex(3f)) {
+
         PerspectiveCompareView(
             topUrl = topFile.net_url,
-            bottomUrl = bottomFile.net_url
+            bottomUrl = bottomFile.net_url,
+            onDismiss = onClose
         )
     }
 }
@@ -100,7 +97,8 @@ fun PerspectiveScreen (
 @Composable
 fun PerspectiveCompareView(
     topUrl: String?,
-    bottomUrl: String?
+    bottomUrl: String?,
+    onDismiss:() -> Unit
 ) {
     val context = LocalContext.current
 
@@ -108,7 +106,6 @@ fun PerspectiveCompareView(
     var bottomBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     var restoreTrigger by remember { mutableStateOf(0) }
-    var showTopBitmap by remember { mutableStateOf(true) } // 新增隐藏/显示状态
     var cleared by remember { mutableStateOf(false) }
     var topAlpha by remember { mutableStateOf(1f) }
     var eraseSize by remember { mutableStateOf(0.12f) }   // 默认大小比例
@@ -160,7 +157,6 @@ fun PerspectiveCompareView(
             topBitmap = topBitmap!!,
             bottomBitmap = bottomBitmap!!,
             restoreTrigger = restoreTrigger,
-            showTopBitmap = showTopBitmap,
             topAlpha = topAlpha,
             eraseSize = eraseSize,
             eraseAlpha = eraseAlpha
@@ -169,17 +165,8 @@ fun PerspectiveCompareView(
         BottomToolBar(
             onRestoreClicked = {
                 restoreTrigger++
-                if (cleared) {
-                    showTopBitmap = !showTopBitmap
-                    cleared = false
-                }
                 topAlpha = 1f
             },
-            onToggleTopVisibility = {
-                showTopBitmap = !showTopBitmap
-                cleared = !cleared
-            },
-
             onToggleSizePanel = {
                 showSizePanel = !showSizePanel
                 showAlphaPanel = false
@@ -197,7 +184,9 @@ fun PerspectiveCompareView(
                 showSizePanel = false
                 showAlphaPanel = false
             },
-            cleared = cleared,
+            onClose = {
+                onDismiss()
+            },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .zIndex(1f)
@@ -245,22 +234,31 @@ fun PerspectiveCompareView(
 @Composable
 fun BottomToolBar(
     onRestoreClicked: () -> Unit,
-    onToggleTopVisibility: () -> Unit,
     onToggleTopAlphaPanel: () -> Unit,
     onToggleSizePanel: () -> Unit,
     onToggleAlphaPanel: () -> Unit,
-    cleared: Boolean,
+    onClose:() -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(70.dp)
+            .zIndex(3f)
             .background(Color.Black)
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
+
+        IconActionButton(
+            iconVector = Icons.Default.Clear,
+            label = "关闭",
+            tint = Color.White,
+            itemWidth = 60.dp,
+            iconSize = 22.dp,
+            onClick = { onClose() }
+        )
 
         IconActionButton(
             iconVector = Icons.Default.Refresh, // 你的复原图标
@@ -270,16 +268,6 @@ fun BottomToolBar(
             iconSize = 22.dp,
 
             onClick = { onRestoreClicked() }
-        )
-
-
-        IconActionButton(
-            iconPainter = painterResource(id = if(cleared) R.drawable.visibility else R.drawable.visibility_off),
-            label = if(cleared) "显示" else "隐藏",
-            tint = Color.White,
-            itemWidth = 60.dp,
-            iconSize = 22.dp,
-            onClick = { onToggleTopVisibility() }
         )
 
         IconActionButton(
@@ -317,7 +305,6 @@ fun PerspectiveCanvas(
     topBitmap: ImageBitmap,
     bottomBitmap: ImageBitmap,
     restoreTrigger: Int,
-    showTopBitmap: Boolean,
     topAlpha: Float,
     eraseSize: Float,
     eraseAlpha: Float
@@ -497,31 +484,29 @@ fun PerspectiveCanvas(
         drawContext.canvas.restore()
 
         // ===== 画上图 + 擦除 =====
-        if (showTopBitmap) {
-            drawContext.canvas.saveLayer(size.toRect(), Paint())
+        drawContext.canvas.saveLayer(size.toRect(), Paint())
 
-            drawContext.canvas.translate(left + offset.x, top + offset.y)
-            drawContext.canvas.scale(totalScale, totalScale)
+        drawContext.canvas.translate(left + offset.x, top + offset.y)
+        drawContext.canvas.scale(totalScale, totalScale)
 
-            drawImage(
-                image = topBitmap,
-                alpha = topAlpha,
-                blendMode = BlendMode.Multiply
-            )
+        drawImage(
+            image = topBitmap,
+            alpha = topAlpha,
+            blendMode = BlendMode.Multiply
+        )
 
-            drawPath(
-                path = path,
-                color = Color.White.copy(alpha = eraseAlpha),
-                style = Stroke(
-                    width = imageSpaceBrush,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round
-                ),
-                blendMode = BlendMode.DstOut
-            )
+        drawPath(
+            path = path,
+            color = Color.White.copy(alpha = eraseAlpha),
+            style = Stroke(
+                width = imageSpaceBrush,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            ),
+            blendMode = BlendMode.DstOut
+        )
 
-            drawContext.canvas.restore()
-        }
+        drawContext.canvas.restore()
     }
 }
 

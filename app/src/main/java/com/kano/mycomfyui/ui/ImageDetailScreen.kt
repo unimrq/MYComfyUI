@@ -363,7 +363,7 @@ fun ImageDetailScreen(
         Box(
             Modifier
                 .matchParentSize()
-                .zIndex(if (isTopBarVisible) 0f else 12f)
+                .zIndex(if (isTopBarVisible) 0f else 2f)
                 .graphicsLayer { alpha = alpha1 }
                 .background(maskColor)
         )
@@ -373,7 +373,7 @@ fun ImageDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { containerSize = it }
-                .zIndex(if(isTopBarVisible) 0f else 12f)
+                .zIndex(if(isTopBarVisible) 0f else 2f)
                 .pointerInput(currentIndex) {
                     detectTransformGestures { centroid, pan, zoom, _ ->
                         val newScale = (scale * zoom).coerceIn(minScale, maxScale)

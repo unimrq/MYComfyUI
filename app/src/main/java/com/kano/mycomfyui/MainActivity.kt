@@ -246,10 +246,6 @@ class MainActivity : ComponentActivity() {
                             QwenSettingScreen()
                         }
 
-                        composable ("image_perspective") {
-                            PerspectiveScreen(navController)
-                        }
-
 
                         composable(
                             route = "prompt_edit/{title}",
