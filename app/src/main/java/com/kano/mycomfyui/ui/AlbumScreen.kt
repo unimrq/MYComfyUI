@@ -178,7 +178,6 @@ fun AlbumScreen(
     /**
      * 变量区
      */
-
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var selectedFileForMenu by remember { mutableStateOf<FileInfo?>(null) }
@@ -278,6 +277,12 @@ fun AlbumScreen(
     var showCutDialog by remember { mutableStateOf(false) }
     var showMoreSheet by remember { mutableStateOf(false) }
 
+    data class CachedFolder(
+        val content: FolderContent,
+        val timestamp: Long
+    )
+
+    val CACHE_EXPIRE_TIME = 30 * 60 * 1000L
 
     /**
      * 函数区
@@ -297,13 +302,46 @@ fun AlbumScreen(
         }
     }
 
+
     fun saveFolderCache(path: String, content: FolderContent) {
-        val json = gson.toJson(content)
+        val cached = CachedFolder(
+            content = content,
+            timestamp = System.currentTimeMillis()
+        )
+        val json = gson.toJson(cached)
         prefs.edit { putString(path, json) }
     }
 
     fun getFolderCache(path: String): FolderContent? {
-        return prefs.getString(path, null)?.let { gson.fromJson(it, FolderContent::class.java) }
+        val json = prefs.getString(path, null) ?: return null
+
+        return try {
+            val cached = gson.fromJson(json, CachedFolder::class.java)
+
+            val isExpired =
+                System.currentTimeMillis() - cached.timestamp > CACHE_EXPIRE_TIME
+
+            if (isExpired) {
+                // 过期自动删除
+                prefs.edit { remove(path) }
+                null
+            } else {
+                cached.content
+            }
+        } catch (e: Exception) {
+            // 结构变更导致反序列化失败时清掉
+            prefs.edit { remove(path) }
+            null
+        }
+    }
+
+    suspend fun updateCacheSilently(path: String) {
+        try {
+            val serverContent = RetrofitClient.getApi().browse(path)
+            saveFolderCache(path, serverContent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun savePath(key: String, path: String) {
@@ -319,16 +357,16 @@ fun AlbumScreen(
         savePath(currentTab, requestedPath)
 
         // 1️⃣ 本地缓存
-//        getFolderCache(requestedPath)?.let { cached ->
-//
-//            viewModel.updateFolderContent(
-//                content = cached,
-//                currentPath = requestedPath,
-//                mode = FolderViewModel.ContentUpdateMode.REFRESH,
-//                fileMode = fileMode,
-//                sortMode = sortMode.toString()
-//            )
-//        }
+        getFolderCache(requestedPath)?.let { cached ->
+
+            viewModel.updateFolderContent(
+                content = cached,
+                currentPath = requestedPath,
+                mode = FolderViewModel.ContentUpdateMode.REFRESH,
+                fileMode = fileMode,
+                sortMode = sortMode.toString()
+            )
+        }
 
         try {
             val serverContent =
@@ -345,7 +383,7 @@ fun AlbumScreen(
 
                 )
 
-//                saveFolderCache(requestedPath, serverContent)
+                saveFolderCache(requestedPath, serverContent)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -374,15 +412,7 @@ fun AlbumScreen(
             val response = RetrofitClient.getApi().uploadImage(pathBody, body)
 
             if (!response.isSuccessful) {
-                val errorBody = response.errorBody()?.string() ?: ""
-                when {
-                    response.code() == 400 && errorBody.contains("500 张图片上限") -> {
-                        Toast.makeText(context, "该文件夹已达 500 张图片上限", Toast.LENGTH_LONG).show()
-                    }
-                    else -> {
-                        Toast.makeText(context, "上传失败：${response.code()}", Toast.LENGTH_SHORT).show()
-                    }
-                }
+                Toast.makeText(context, "上传失败：${response.code()}", Toast.LENGTH_SHORT).show()
             }
 
         } catch (e: Exception) {
@@ -730,7 +760,7 @@ fun AlbumScreen(
                                         onDismissRequest = { expanded1 = false },
                                         modifier = Modifier
                                             .width(240.dp) // 控制整体宽度
-                                            .background(Color(0xFFEEEEEE))
+                                            .background(Color.White)
                                             .padding(horizontal = 18.dp, vertical = 4.dp), // 紧凑一点的内边距
                                         offset = DpOffset(x = (48.dp), y = 0.dp) // 负的 x 偏移贴右
 
@@ -929,7 +959,7 @@ fun AlbumScreen(
                                         onDismissRequest = { expanded = false },
                                         modifier = Modifier
                                             .width(90.dp)
-                                            .background(Color(0xFFEEEEEE))
+                                            .background(Color.White)
                                     ) {
 
                                         DropdownMenuItem(
@@ -1014,8 +1044,8 @@ fun AlbumScreen(
                             val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
                             scope.launch {
                                 val newIndex = when {
-                                    dragAmount > 50 && currentIndex > 0 -> currentIndex - 1
-                                    dragAmount < -50 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
+                                    dragAmount >80 && currentIndex > 0 -> currentIndex - 1
+                                    dragAmount < -80 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
                                     else -> return@launch
                                 }
 
@@ -1055,13 +1085,13 @@ fun AlbumScreen(
                                     val safeTimeB = timeB ?: LocalDateTime.MIN
 
                                     val cmp = safeTimeB.compareTo(safeTimeA) // 降序
-                                    if (cmp != 0) cmp else collator.compare(a.name ?: "", b.name ?: "")
+                                    if (cmp != 0) cmp else collator.compare(a.name, b.name)
                                 } catch (e: Exception) {
                                     0 // 出错就认为相等，不影响排序
                                 }
                             }
                             else -> content.folders.sortedWith { a, b ->
-                                collator.compare(a.name ?: "", b.name ?: "")
+                                collator.compare(a.name, b.name)
                             }
                         }
 
@@ -1548,7 +1578,8 @@ fun AlbumScreen(
                                                     viewModel.deleteSingleAndUpdatePreview(
                                                         file = fileToDelete
                                                     )
-//                                                    refreshFolder(uiState.currentPath)
+
+                                                    updateCacheSilently(uiState.currentPath)
 
                                                     gridState.scrollToItem(firstVisibleIndex, firstVisibleOffset)
                                                 }

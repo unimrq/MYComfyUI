@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -45,8 +46,8 @@ suspend fun performNudeGeneration(
             it.file_url == path || it.path == path
         }
         file?.let { f ->
-            val fullUrl = f.file_url.toString()
-            if (!f.is_dir && fullUrl.matches(
+
+            if (!f.is_dir && path.matches(
                     Regex(".*\\.(png|jpg|jpeg|webp)$", RegexOption.IGNORE_CASE)
                 )
             ) {
@@ -54,7 +55,7 @@ suspend fun performNudeGeneration(
                     if (creativeMode) {
                         RetrofitClient.getApi().generateImage(
                             type = "脱衣",
-                            imageUrl = fullUrl,
+                            imageUrl = path,
                             thumbnailUrl = f.thumbnail_url.toString(),
                             args = params
                         )
