@@ -125,6 +125,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import androidx.core.content.edit
@@ -279,6 +280,9 @@ fun AlbumScreen(
 
     var showPerspective by remember { mutableStateOf(false) }
     var perspectiveFiles by remember { mutableStateOf<List<FileInfo>?>(null) }
+
+    var isLoading by remember { mutableStateOf(false) }
+
 
     data class CachedFolder(
         val content: FolderContent,
@@ -1847,7 +1851,10 @@ fun AlbumScreen(
             EditImageSheet(
                 imageUrls = generateImageUrls,
                 thumbnailUrls = generateThumbnailUrls,
-                navController = navController
+                navController = navController,
+                onLoadingChange = { loading ->
+                    isLoading = loading
+                }
             ) {
                 showEditSheet = false
             }
@@ -1902,24 +1909,70 @@ fun AlbumScreen(
             onDismiss = { showNudeSheet = false },
             onCreativeModeClick = { params ->
                 scope.launch {
-                    performNudeGeneration(
-                        context = context,
-                        selectedImages = uiState.selectedPaths.toList(),
-                        folderContent = uiState.folderContent,
-                        refreshFolder = { scope.launch {
-                            refreshFolder(uiState.currentPath)
-                        } },
-                        clearSelection = {
-                            viewModel.clearSelection()
-                            multiSelectMode = false
-                        },
-                        creativeMode = true,
-                        params = params
-                    )
+                    isLoading = true
+
+                    try {
+                        performNudeGeneration(
+                            context = context,
+                            selectedImages = uiState.selectedPaths.toList(),
+                            folderContent = uiState.folderContent,
+                            refreshFolder = {
+                                scope.launch {
+                                    refreshFolder(uiState.currentPath)
+                                }
+                            },
+                            clearSelection = {
+                                viewModel.clearSelection()
+                                multiSelectMode = false
+                            },
+                            creativeMode = true,
+                            params = params
+                        )
+                    } finally {
+                        isLoading = false
+                    }
                 }
                 showNudeSheet = false
             }
         )
+    }
+
+    if (isLoading) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(
+                        Color.White,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.Black
+                    )
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Text(
+                        text = "请稍后...",
+                        color = Color.Black,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+        }
     }
 
     if (isTopBarVisible && ((multiSelectMode && uiState.selectedPaths.isNotEmpty()) || uiState.previewPath?.isNotEmpty() == true)) {

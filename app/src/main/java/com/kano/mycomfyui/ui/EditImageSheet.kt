@@ -79,6 +79,7 @@ fun EditImageSheet(
     imageUrls: List<String>,
     thumbnailUrls: List<String>,
     navController: NavController,
+    onLoadingChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -355,40 +356,44 @@ fun EditImageSheet(
 
                     // ---------- 5️⃣ 统一发送 ----------
                     scope.launch {
+                        onLoadingChange(true)
 
-                        finalPrompts.forEach { (text, promptTitle) ->
+                        try {
+                            finalPrompts.forEach { (text, promptTitle) ->
 
-                            val params = mutableMapOf(
-                                "denoise" to denoise.ifBlank { "0.85" },
-                                "qwen_model" to qwenModel.ifBlank { "Qwen-Rapid-AIO-NSFW-v19.safetensors" },
-                                "sampler_name" to samplerName.ifBlank { "er_sde" },
-                                "scheduler" to scheduler.ifBlank { "beta" },
-                                "steps" to steps.ifBlank { "4" },
-                                "width" to finalWidth,
-                                "height" to finalHeight,
-                                "text" to text
-                            )
+                                val params = mutableMapOf(
+                                    "denoise" to denoise.ifBlank { "0.85" },
+                                    "qwen_model" to qwenModel.ifBlank { "Qwen-Rapid-AIO-NSFW-v19.safetensors" },
+                                    "sampler_name" to samplerName.ifBlank { "er_sde" },
+                                    "scheduler" to scheduler.ifBlank { "beta" },
+                                    "steps" to steps.ifBlank { "4" },
+                                    "width" to finalWidth,
+                                    "height" to finalHeight,
+                                    "text" to text
+                                )
 
-                            // 只有有标题才传
-                            promptTitle?.let {
-                                params["prompt_title"] = it
-                            }
+                                // 只有有标题才传
+                                promptTitle?.let {
+                                    params["prompt_title"] = it
+                                }
 
-                            imageUrls.forEachIndexed { index, url ->
-                                try {
-                                    RetrofitClient.getApi().generateImage(
-                                        type = "修图",
-                                        imageUrl = url,
-                                        thumbnailUrl = thumbnailUrls.getOrNull(index) ?: "",
-                                        args = params
-                                    )
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                    Toast.makeText(context, "网络错误", Toast.LENGTH_SHORT).show()
+                                imageUrls.forEachIndexed { index, url ->
+                                    try {
+                                        RetrofitClient.getApi().generateImage(
+                                            type = "修图",
+                                            imageUrl = url,
+                                            thumbnailUrl = thumbnailUrls.getOrNull(index) ?: "",
+                                            args = params
+                                        )
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        Toast.makeText(context, "网络错误", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
+                        } finally {
+                            onLoadingChange(false)
                         }
-
                         onDismiss()
                     }
 
