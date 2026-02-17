@@ -57,6 +57,7 @@ import kotlinx.coroutines.launch
 import kotlin.text.toBoolean
 import androidx.core.content.edit
 import androidx.navigation.NavController
+import kotlinx.coroutines.delay
 
 
 class EditPrefs(context: Context) {
@@ -392,6 +393,8 @@ fun EditImageSheet(
                                 }
                             }
                         } finally {
+                            delay(120)
+
                             onLoadingChange(false)
                         }
                         onDismiss()

@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,6 +58,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
 import androidx.navigation.NavController
@@ -65,6 +69,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
+import kotlinx.coroutines.delay
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,12 +106,11 @@ fun PerspectiveCompareView(
     onDismiss:() -> Unit
 ) {
     val context = LocalContext.current
-
+    val loader = remember { ImageLoader(context) }
     var topBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var bottomBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     var restoreTrigger by remember { mutableStateOf(0) }
-    var cleared by remember { mutableStateOf(false) }
     var topAlpha by remember { mutableStateOf(1f) }
     var eraseSize by remember { mutableStateOf(0.12f) }   // 默认大小比例
     var eraseAlpha by remember { mutableStateOf(0.64f) }     // 默认强度
@@ -114,10 +118,14 @@ fun PerspectiveCompareView(
     var showSizePanel by remember { mutableStateOf(false) }
     var showAlphaPanel by remember { mutableStateOf(false) }
     var showTopAlphaPanel by remember { mutableStateOf(false) }
+
+    val isReady = topBitmap != null && bottomBitmap != null
+
+    var showLoading by remember { mutableStateOf(true) }
+
     // 加载上层图片
     LaunchedEffect(topUrl) {
         if (topUrl != null) {
-            val loader = ImageLoader(context)
             val request = ImageRequest.Builder(context)
                 .data(topUrl)
                 .allowHardware(false)
@@ -132,7 +140,6 @@ fun PerspectiveCompareView(
     // 加载下层图片
     LaunchedEffect(bottomUrl) {
         if (bottomUrl != null) {
-            val loader = ImageLoader(context)
             val request = ImageRequest.Builder(context)
                 .data(bottomUrl)
                 .allowHardware(false)
@@ -144,91 +151,130 @@ fun PerspectiveCompareView(
         }
     }
 
-    if (topBitmap == null || bottomBitmap == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+
+    LaunchedEffect(topBitmap, bottomBitmap) {
+        if (topBitmap != null && bottomBitmap != null) {
+            delay(120) // 延迟 500ms 再关闭
+            showLoading = false
         }
-        return
     }
 
-    // 整体布局：Canvas + 底栏
-    Box(Modifier.fillMaxSize()) {
-        PerspectiveCanvas(
-            topBitmap = topBitmap!!,
-            bottomBitmap = bottomBitmap!!,
-            restoreTrigger = restoreTrigger,
-            topAlpha = topAlpha,
-            eraseSize = eraseSize,
-            eraseAlpha = eraseAlpha
-        )
-
-        BottomToolBar(
-            onRestoreClicked = {
-                restoreTrigger++
-                topAlpha = 1f
-            },
-            onToggleSizePanel = {
-                showSizePanel = !showSizePanel
-                showAlphaPanel = false
-                showTopAlphaPanel = false
-            },
-
-            onToggleAlphaPanel = {
-                showAlphaPanel = !showAlphaPanel
-                showSizePanel = false
-                showTopAlphaPanel = false
-            },
-
-            onToggleTopAlphaPanel = {
-                showTopAlphaPanel = !showTopAlphaPanel
-                showSizePanel = false
-                showAlphaPanel = false
-            },
-            onClose = {
-                onDismiss()
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .zIndex(1f)
-        )
-
-        if (showSizePanel) {
-            SingleSliderPanel(
-                value = eraseSize,
-                onValueChange = { eraseSize = it },
-                valueRange = 0.02f..0.3f,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 90.dp, end = 16.dp)
-                    .zIndex(2f)
+    if (!isReady || showLoading) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
             )
-        }
-
-        if (showAlphaPanel) {
-            SingleSliderPanel(
-                value = eraseAlpha,
-                onValueChange = { eraseAlpha = it },
-                valueRange = 0.1f..1f,
+        ) {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 90.dp, end = 16.dp)
-                    .zIndex(2f)
-            )
-        }
+                    .background(
+                        Color.White,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
 
-        if (showTopAlphaPanel) {
-            SingleSliderPanel(
-                value = topAlpha,
-                onValueChange = { topAlpha = it },
-                valueRange = 0f..1f,
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = Color.Black
+                    )
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Text(
+                        text = "请稍后...",
+                        color = Color.Black,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+        }
+    } else {
+        // 整体布局：Canvas + 底栏
+        Box(Modifier.fillMaxSize()) {
+            PerspectiveCanvas(
+                topBitmap = topBitmap!!,
+                bottomBitmap = bottomBitmap!!,
+                restoreTrigger = restoreTrigger,
+                topAlpha = topAlpha,
+                eraseSize = eraseSize,
+                eraseAlpha = eraseAlpha
+            )
+
+            BottomToolBar(
+                onRestoreClicked = {
+                    restoreTrigger++
+                    topAlpha = 1f
+                },
+                onToggleSizePanel = {
+                    showSizePanel = !showSizePanel
+                    showAlphaPanel = false
+                    showTopAlphaPanel = false
+                },
+
+                onToggleAlphaPanel = {
+                    showAlphaPanel = !showAlphaPanel
+                    showSizePanel = false
+                    showTopAlphaPanel = false
+                },
+
+                onToggleTopAlphaPanel = {
+                    showTopAlphaPanel = !showTopAlphaPanel
+                    showSizePanel = false
+                    showAlphaPanel = false
+                },
+                onClose = {
+                    onDismiss()
+                },
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 90.dp, end = 16.dp)
-                    .zIndex(2f)
+                    .align(Alignment.BottomCenter)
+                    .zIndex(1f)
             )
-        }
 
+            if (showSizePanel) {
+                SingleSliderPanel(
+                    value = eraseSize,
+                    onValueChange = { eraseSize = it },
+                    valueRange = 0.02f..0.3f,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 90.dp, end = 16.dp)
+                        .zIndex(2f)
+                )
+            }
+
+            if (showAlphaPanel) {
+                SingleSliderPanel(
+                    value = eraseAlpha,
+                    onValueChange = { eraseAlpha = it },
+                    valueRange = 0.1f..1f,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 90.dp, end = 16.dp)
+                        .zIndex(2f)
+                )
+            }
+
+            if (showTopAlphaPanel) {
+                SingleSliderPanel(
+                    value = topAlpha,
+                    onValueChange = { topAlpha = it },
+                    valueRange = 0f..1f,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 90.dp, end = 16.dp)
+                        .zIndex(2f)
+                )
+            }
+
+        }
     }
+
 }
 
 @Composable

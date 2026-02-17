@@ -1776,7 +1776,7 @@ fun AlbumScreen(
                     showPerspective = false
                     perspectiveFiles = null
                     showMoreSheet = false
-                    isTopBarVisible = !isTopBarVisible
+                    isTopBarVisible = true
                 }
             )
         }
@@ -1929,6 +1929,7 @@ fun AlbumScreen(
                             params = params
                         )
                     } finally {
+                        delay(120)
                         isLoading = false
                     }
                 }
@@ -2056,11 +2057,12 @@ fun AlbumScreen(
 //                            navController.navigate("image_perspective")
 //
 //                            multiSelectMode = false
-                            isTopBarVisible = !isTopBarVisible
-                            showMoreSheet = false
+
                             perspectiveFiles = listOf(originFile, latestNudeFile)
                             showPerspective = true
                             multiSelectMode = false
+                            isTopBarVisible = false
+                            showMoreSheet = false
                         }
                     }
 
