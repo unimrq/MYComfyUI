@@ -1,5 +1,6 @@
 package com.kano.mycomfyui.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +102,20 @@ data class TaskInfo(
     val result: String?
 )
 
+enum class TaskStatus(val label: String, val value: String) {
+    RUNNING("正在执行", "RUNNING"),
+    SUCCESS("执行成功", "SUCCESS"),
+    PENDING("等待执行", "PENDING"),
+    FAILED("执行失败", "FAILED");
+
+    companion object {
+        fun fromValue(value: String?): TaskStatus? {
+            return entries.find { it.value == value }
+        }
+    }
+}
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskScreen(
@@ -118,6 +135,7 @@ fun TaskScreen(
     val navBackStackEntry = remember { navController.currentBackStackEntry }
     // 当前选中的任务，用于 BottomSheet
     var selectedTask by remember { mutableStateOf<TaskInfo?>(null) }
+    var currentStatus by remember { mutableStateOf(TaskStatus.RUNNING) }
 
     // BottomSheet 是否展开
     val sheetState = rememberModalBottomSheetState(
@@ -148,25 +166,34 @@ fun TaskScreen(
 
         try {
             val api = RetrofitClient.getApi()
-            val resp = api.getTasks(page = page, size = pageSize)
+            val resp = api.getTasks(
+                page = page,
+                size = pageSize,
+                status = currentStatus.value   // 👈 关键
+            )
 
             if (reset) {
-                taskList = resp.sortedByDescending { it.start_time }
+                taskList = resp
             } else {
-                taskList = (taskList + resp).sortedByDescending { it.start_time }
+                taskList = (taskList + resp).distinctBy { it.id }
             }
 
             page++
+
             if (resp.size < pageSize) {
                 endReached = true
             }
 
         } catch (e: Exception) {
             e.printStackTrace()
+            // 👇 防止崩溃
+            endReached = true
         } finally {
             isLoading = false
         }
     }
+
+
 
     // ---- 顶层统一操作函数 ----
     fun handleDeleteTask(taskId: String) {
@@ -212,18 +239,30 @@ fun TaskScreen(
 
 
     LaunchedEffect(gridState) {
-        snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
-            .collect { lastVisibleIndex ->
-                if (lastVisibleIndex != null && lastVisibleIndex >= taskList.size - 1) {
+        snapshotFlow {
+            val lastVisibleItem =
+                gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+            val totalCount = gridState.layoutInfo.totalItemsCount
+
+            lastVisibleItem to totalCount
+        }
+            .collect { (lastVisibleItem, totalCount) ->
+
+                if (lastVisibleItem != null &&
+                    lastVisibleItem >= totalCount - 3 &&
+                    !isLoading &&
+                    !endReached
+                ) {
                     loadTasks()
                 }
             }
     }
 
 
-    LaunchedEffect(navBackStackEntry) {
+    LaunchedEffect(Unit) {
         loadTasks(reset = true)
     }
+
 
     setTopBar("任务管理", false, false, {}, {}, {}, {})
 
@@ -232,52 +271,66 @@ fun TaskScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("任务管理") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White,
-                    titleContentColor = Color.Black
-                ),
-                actions = {
-                    IconButton(onClick = {
-                        scope.launch {
-                            try {
-                                val api = RetrofitClient.getApi()
-                                val response = api.clearTasks()
-                                loadTasks(reset = true) // 刷新任务列表
-                            } catch (e: Exception) {
-                                e.printStackTrace()
+            Column {
+                TopAppBar(
+                    title = { Text("任务管理") },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.White,
+                        titleContentColor = Color.Black
+                    ),
+                    actions = {
+                        IconButton(onClick = {
+                            scope.launch {
+                                try {
+                                    val api = RetrofitClient.getApi()
+                                    api.clearTasks()
+                                    loadTasks(reset = true)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "清空任务",
+                                tint = Color.Black,
+                            )
+                        }
+
+                        IconButton(onClick = {
+                            scope.launch {
+                                try {
+                                    val api = RetrofitClient.getApi()
+                                    api.deleteTasks()
+                                    loadTasks(reset = true)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "删除任务",
+                                tint = Color.Black,
+                                modifier = Modifier.height(22.dp)
+                            )
+                        }
+                    }
+                )
+
+                // 👇 必须在 Column 里
+                StatusTabBar(
+                    current = currentStatus,
+                    onSelect = { status ->
+                        if (currentStatus != status) {
+                            currentStatus = status
+                            scope.launch {
+                                loadTasks(reset = true)
                             }
                         }
-                    }) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = "清空任务",
-                            tint = Color.Black,
-                        )
                     }
-
-                    IconButton(onClick = {
-                        scope.launch {
-                            try {
-                                val api = RetrofitClient.getApi()
-                                val response = api.deleteTasks()
-                                loadTasks(reset = true) // 刷新任务列表
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                    }) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "删除任务",
-                            tint = Color.Black,
-                            modifier = Modifier.height(22.dp)
-
-                        )
-                    }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
 
@@ -304,7 +357,7 @@ fun TaskScreen(
                         state = pullRefreshState
                     )
                 },
-                modifier = Modifier.fillMaxSize().padding(top = 104.dp)
+                modifier = Modifier.fillMaxSize().padding(top = 150.dp)
             ) {
 
                 LazyVerticalGrid(
@@ -512,14 +565,15 @@ fun StatusOverlay(
         contentAlignment = Alignment.Center
     ) {
         when (status) {
-            "正在执行" -> {
+            "RUNNING" -> {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     strokeWidth = 2.dp,
                     color = Color.Black
                 )
             }
-            "执行成功" -> {
+
+            "SUCCESS" -> {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = null,
@@ -527,7 +581,8 @@ fun StatusOverlay(
                     modifier = Modifier.size(24.dp)
                 )
             }
-            "执行失败" -> {
+
+            "FAILED" -> {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = null,
@@ -535,7 +590,8 @@ fun StatusOverlay(
                     modifier = Modifier.size(24.dp)
                 )
             }
-            "追加任务" -> {
+
+            "PENDING" -> {
                 Icon(
                     painter = painterResource(id = R.drawable.clock),
                     contentDescription = null,
@@ -575,12 +631,13 @@ fun TaskInfoSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val statusColor = when (task.status) {
-                "执行成功" -> Color(0xFF4CAF50)
-                "执行失败", "执行超时" -> Color(0xFFF44336)
-                "正在执行" -> Color(0xFF0099FF)
-                "追加任务" -> Color(0xFFFF9C57)
+                "SUCCESS" -> Color(0xFF4CAF50)
+                "FAILED" -> Color(0xFFF44336)
+                "RUNNING" -> Color(0xFF0099FF)
+                "PENDING" -> Color(0xFFFF9C57)
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
+
 
             // 状态圆点
             Box(
@@ -592,12 +649,15 @@ fun TaskInfoSection(
             Spacer(modifier = Modifier.width(8.dp))
 
             // 状态文字
+            val statusEnum = TaskStatus.fromValue(task.status)
+
             Text(
-                text = task.status,
+                text = statusEnum?.label ?: task.status,
                 style = MaterialTheme.typography.bodyMedium,
                 color = statusColor,
                 fontSize = 20.sp
             )
+
 
             Spacer(modifier = Modifier.weight(1f)) // 推按钮到右边
 
@@ -754,5 +814,52 @@ fun FullScreenImageDialog(
                 contentScale = ContentScale.Fit
             )
         }
+    }
+}
+
+@Composable
+fun StatusTabBar(
+    current: TaskStatus,
+    onSelect: (TaskStatus) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
+            .padding(vertical = 0.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        TaskStatus.entries.forEach { status ->
+
+            val selected = status == current
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clickable { onSelect(status) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+
+                Text(
+                    text = status.label,
+                    color = if (selected) Color(0xFF0066FF) else Color.Gray,
+                    fontSize = 14.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Box(
+                    modifier = Modifier
+                        .height(3.dp)
+                        .width(48.dp)   // 🔥 固定宽度，不要 fillMaxWidth
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            if (selected) Color(0xFF0066FF)
+                            else Color.Transparent
+                        )
+                )
+            }
+        }
+
     }
 }

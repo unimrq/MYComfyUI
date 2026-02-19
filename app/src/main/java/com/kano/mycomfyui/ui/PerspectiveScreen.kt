@@ -106,14 +106,30 @@ fun PerspectiveCompareView(
     onDismiss:() -> Unit
 ) {
     val context = LocalContext.current
+    val prefs = remember { NudePrefs(context) }
     val loader = remember { ImageLoader(context) }
     var topBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var bottomBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
     var restoreTrigger by remember { mutableStateOf(0) }
-    var topAlpha by remember { mutableStateOf(1f) }
-    var eraseSize by remember { mutableStateOf(0.12f) }   // 默认大小比例
-    var eraseAlpha by remember { mutableStateOf(0.64f) }     // 默认强度
+    var topAlpha by remember {
+        mutableStateOf(
+            prefs.get("perspective_topAlpha", "1").toFloat()
+        )
+    }
+
+    var eraseSize by remember {
+        mutableStateOf(
+            prefs.get("perspective_eraseSize", "0.12").toFloat()
+        )
+    }
+
+    var eraseAlpha by remember {
+        mutableStateOf(
+            prefs.get("perspective_eraseAlpha", "0.64").toFloat()
+        )
+    }
+
 
     var showSizePanel by remember { mutableStateOf(false) }
     var showAlphaPanel by remember { mutableStateOf(false) }
@@ -239,7 +255,10 @@ fun PerspectiveCompareView(
             if (showSizePanel) {
                 SingleSliderPanel(
                     value = eraseSize,
-                    onValueChange = { eraseSize = it },
+                    onValueChange = {
+                        eraseSize = it
+                        prefs.put("perspective_eraseSize", it.toString())
+                    },
                     valueRange = 0.02f..0.3f,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -251,7 +270,10 @@ fun PerspectiveCompareView(
             if (showAlphaPanel) {
                 SingleSliderPanel(
                     value = eraseAlpha,
-                    onValueChange = { eraseAlpha = it },
+                    onValueChange = {
+                        eraseAlpha = it
+                        prefs.put("perspective_eraseAlpha", it.toString())
+                    },
                     valueRange = 0.1f..1f,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -263,7 +285,10 @@ fun PerspectiveCompareView(
             if (showTopAlphaPanel) {
                 SingleSliderPanel(
                     value = topAlpha,
-                    onValueChange = { topAlpha = it },
+                    onValueChange = {
+                        topAlpha = it
+                        prefs.put("perspective_topAlpha", it.toString())
+                    },
                     valueRange = 0f..1f,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -321,7 +346,7 @@ fun BottomToolBar(
             label = "透明度",
             tint = Color.White,
             itemWidth = 60.dp,
-            iconSize = 22.dp,
+            iconSize = 18.dp,
             onClick = { onToggleTopAlphaPanel() }
         )
 
@@ -330,7 +355,7 @@ fun BottomToolBar(
             label = "笔刷大小",
             tint = Color.White,
             itemWidth = 60.dp,
-            iconSize = 18.dp,
+            iconSize = 16.dp,
             onClick = { onToggleSizePanel() }
         )
 
@@ -339,7 +364,7 @@ fun BottomToolBar(
             label = "笔刷力度",
             tint = Color.White,
             itemWidth = 60.dp,
-            iconSize = 24.dp,
+            iconSize = 20.dp,
             onClick = { onToggleAlphaPanel() }
         )
     }

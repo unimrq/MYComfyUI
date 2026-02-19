@@ -202,8 +202,8 @@ fun PromptListScreen(
                         shape = RoundedCornerShape(16.dp), // ✅ 这里直接设置圆角
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Color.LightGray,
-                            unfocusedContainerColor = Color.LightGray,
-                            cursorColor = Color(0xFF4A80F0),
+                            unfocusedContainerColor = Color(0xFFEAEAEA),
+                            cursorColor = Color(0xFF2E7D32),
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent
                         ),

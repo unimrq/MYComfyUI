@@ -1,6 +1,7 @@
 package com.kano.mycomfyui.ui
 
 import android.annotation.SuppressLint
+import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
@@ -102,6 +103,9 @@ fun ImageDetailScreen(
     }
 
     val currentFile = getSafeFile(sortedFiles, currentIndex) ?: return
+
+
+//    Log.d("imagepath", currentFile.net_url.toString())
 
     // 缩放和平移
     var scale by remember { mutableStateOf(1f) }
@@ -617,7 +621,7 @@ fun ImageDetailScreen(
                                         .build(),
                                     contentDescription = "缩略图",
                                     contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             } else {
                                 // 缩略图不存在时显示加载指示器
@@ -625,7 +629,7 @@ fun ImageDetailScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    CircularProgressIndicator(color = Color.White)
+                                    CircularProgressIndicator(color = Color.Black)
                                 }
                             }
                         },

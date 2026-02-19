@@ -36,41 +36,59 @@ suspend fun performNudeGeneration(
     refreshFolder: () -> Unit,
     clearSelection: () -> Unit,
     creativeMode: Boolean,
-    params: Map<String, String>
+    params: Map<String, String>,
+    filterUnmatched: Boolean // ⭐ 控制是否过滤
 ) {
+    if (folderContent == null) return
 
     var submitted = false
 
-    selectedImages.forEach { path ->
-        val file = folderContent?.files?.find {
+    // 1️⃣ 转换为 FileInfo
+    val selectedFiles = selectedImages.mapNotNull { path ->
+        folderContent.files.find {
             it.file_url == path || it.path == path
         }
-        file?.let { f ->
+    }
 
-            if (!f.is_dir && path.matches(
-                    Regex(".*\\.(png|jpg|jpeg|webp)$", RegexOption.IGNORE_CASE)
-                )
-            ) {
-                try {
-                    if (creativeMode) {
-                        RetrofitClient.getApi().generateImage(
-                            type = "脱衣",
-                            imageUrl = path,
-                            thumbnailUrl = f.thumbnail_url.toString(),
-                            args = params
-                        )
-                    }
-                    submitted = true
+    // 2️⃣ 根据开关决定要处理哪些文件
+    val filesToProcess = if (filterUnmatched) {
+        resolveUnmatchedOriginFiles(
+            selectedFiles,
+            folderContent.files
+        )
+    } else {
+        selectedFiles
+    }
 
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    Toast.makeText(context, "网络错误: ${f.name}", Toast.LENGTH_SHORT).show()
+    // 3️⃣ 提交任务
+    for (file in filesToProcess) {
+
+        val path = file.file_url ?: file.path ?: continue
+
+        if (!file.is_dir && path.matches(
+                Regex(".*\\.(png|jpg|jpeg|webp)$", RegexOption.IGNORE_CASE)
+            )
+        ) {
+            try {
+                if (creativeMode) {
+                    RetrofitClient.getApi().generateImage(
+                        type = "脱衣",
+                        imageUrl = path,
+                        thumbnailUrl = file.thumbnail_url.toString(),
+                        args = params
+                    )
                 }
+
+                submitted = true
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "网络错误: ${file.name}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // 🚀 在循环结束后只弹一次
+    // 4️⃣ 提示
     if (!creativeMode && submitted) {
         Toast.makeText(context, "脱衣任务已提交", Toast.LENGTH_SHORT).show()
     }
@@ -78,6 +96,7 @@ suspend fun performNudeGeneration(
     clearSelection()
     refreshFolder()
 }
+
 
 
 /**
@@ -194,4 +213,39 @@ fun resolveDiffFilesWithCheck(
     }
 
     return originFile to latestNudeFile
+}
+
+fun resolveUnmatchedOriginFiles(
+    selectedFiles: List<FileInfo>,
+    allFiles: List<FileInfo>
+): List<FileInfo> {
+
+    if (selectedFiles.isEmpty()) return emptyList()
+
+    val result = mutableListOf<FileInfo>()
+
+    val nudeRegex = Regex("""-脱衣-\d+$""")
+
+    for (file in selectedFiles) {
+
+        val baseName = file.name.substringBeforeLast(".")
+
+        // ❌ 如果是脱衣图，直接跳过
+        if (nudeRegex.containsMatchIn(baseName)) {
+            continue
+        }
+
+        // 查找是否存在对应脱衣图
+        val hasNude = allFiles.any {
+            val nameWithoutExt = it.name.substringBeforeLast(".")
+            nameWithoutExt.startsWith("$baseName-脱衣-")
+        }
+
+        // ✅ 没有脱衣图才加入结果
+        if (!hasNude) {
+            result.add(file)
+        }
+    }
+
+    return result
 }

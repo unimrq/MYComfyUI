@@ -72,6 +72,7 @@ import com.kano.mycomfyui.ui.PromptAddScreen
 import com.kano.mycomfyui.ui.PromptEditScreen
 import com.kano.mycomfyui.ui.PromptListScreen
 import com.kano.mycomfyui.ui.QwenSettingScreen
+import com.kano.mycomfyui.ui.ServerInfoScreen
 import com.kano.mycomfyui.ui.SettingsScreen
 import com.kano.mycomfyui.ui.TaskScreen
 import com.kano.mycomfyui.ui.loadAddressList
@@ -246,6 +247,9 @@ class MainActivity : ComponentActivity() {
                             QwenSettingScreen()
                         }
 
+                        composable("server_info") {
+                            ServerInfoScreen()
+                        }
 
                         composable(
                             route = "prompt_edit/{title}",

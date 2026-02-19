@@ -82,7 +82,7 @@ fun ParamTextField(
 @Composable
 fun NudeModeBottomSheet(
     onDismiss: () -> Unit,
-    onCreativeModeClick: (Map<String, String>) -> Unit
+    onCreativeModeClick: (Map<String, String>, filterUnmatched: Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { NudePrefs(context) }
@@ -137,6 +137,12 @@ fun NudeModeBottomSheet(
 
     val focusRequester = remember { FocusRequester() }
 
+    var filterUnmatched by remember {
+        mutableStateOf(
+            prefs.get("filterUnmatched", "false") == "true"
+        )
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(
@@ -146,7 +152,7 @@ fun NudeModeBottomSheet(
         Box(
             modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 2.dp)
         ){
             OutlinedTextField(
                 value = promptText,
@@ -158,6 +164,27 @@ fun NudeModeBottomSheet(
                     .focusRequester(focusRequester),
                 maxLines = 5,
                 singleLine = false
+            )
+        }
+
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 0.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.Checkbox(
+                checked = filterUnmatched,
+                onCheckedChange = {
+                    filterUnmatched = it
+                    prefs.put("filterUnmatched", it.toString())
+                }
+            )
+
+            Text(
+                text = "过滤已匹配的图片",
+                fontSize = 14.sp
             )
         }
 
@@ -242,7 +269,7 @@ fun NudeModeBottomSheet(
                         "text" to promptText
                     )
 
-                    onCreativeModeClick(params)
+                    onCreativeModeClick(params, filterUnmatched)
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xffb3424a)
@@ -253,8 +280,6 @@ fun NudeModeBottomSheet(
                 Text("发送")
             }
         }
-
-
     }
 }
 

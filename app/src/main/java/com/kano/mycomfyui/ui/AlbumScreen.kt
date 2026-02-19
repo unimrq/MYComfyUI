@@ -31,6 +31,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,6 +47,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -99,6 +101,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -137,6 +140,7 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Size
 import com.google.gson.Gson
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.data.FileInfo
@@ -149,6 +153,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -283,6 +289,7 @@ fun AlbumScreen(
 
     var isLoading by remember { mutableStateOf(false) }
 
+    var image2Path by remember { mutableStateOf("") }
 
     data class CachedFolder(
         val content: FolderContent,
@@ -359,13 +366,29 @@ fun AlbumScreen(
         return prefs1.getString(key, defaultPath) ?: defaultPath
     }
 
+
+    suspend fun restoreGridScroll(
+        currentPath: String
+    ) {
+        val pos = scrollPositions[currentPath] ?: return
+
+        // 等待至少一帧，确保布局完成
+        withFrameNanos { }
+
+        val itemCount = gridState.layoutInfo.totalItemsCount
+        if (itemCount == 0) return
+
+        val safeIndex = pos.first.coerceAtMost(itemCount - 1)
+
+        gridState.scrollToItem(safeIndex, pos.second)
+    }
+
     // 拉取 API
     suspend fun refreshFolder(requestedPath: String) {
         savePath(currentTab, requestedPath)
 
         // 1️⃣ 本地缓存
         getFolderCache(requestedPath)?.let { cached ->
-
             viewModel.updateFolderContent(
                 content = cached,
                 currentPath = requestedPath,
@@ -387,9 +410,7 @@ fun AlbumScreen(
                     mode = FolderViewModel.ContentUpdateMode.REFRESH,
                     fileMode = fileMode,
                     sortMode = sortMode.toString()
-
                 )
-
                 saveFolderCache(requestedPath, serverContent)
             }
         } catch (e: Exception) {
@@ -398,6 +419,8 @@ fun AlbumScreen(
                 Toast.makeText(context, "刷新失败", Toast.LENGTH_SHORT).show()
             }
         }
+
+        restoreGridScroll(uiState.currentPath)
     }
 
 
@@ -529,6 +552,7 @@ fun AlbumScreen(
     }
 
 
+
     /**
      * 变量区
      */
@@ -583,24 +607,11 @@ fun AlbumScreen(
             pathOptions.first { it.first == currentTab }.second
         )
 
-        viewModel.setCurrentPath(initialPath) // 初始化目录
+        viewModel.setCurrentPath(initialPath)
         scope.launch {
             refreshFolder(uiState.currentPath)
         }
 
-    }
-
-    LaunchedEffect(uiState.currentPath, uiState.sortedFiles.size) {
-        val pos = scrollPositions[uiState.currentPath]
-        if (pos != null) {
-            gridState.scrollToItem(pos.first, pos.second) // 恢复记忆位置
-        }
-    }
-
-    LaunchedEffect(fileMode) {
-        modePrefs.edit {
-            putString("file_mode", fileMode.value)
-        }
     }
 
     BackHandler(enabled = true) {
@@ -632,9 +643,8 @@ fun AlbumScreen(
             }
 
             // 3️⃣ 返回父目录
-            currentTab != "最新" &&
-                    uiState.currentPath !in listOf("素材", "动图", "修图", "生图") &&
-                    uiState.folderContent?.parent != null -> {
+            uiState.currentPath !in listOf("素材", "动图", "修图", "生图") &&
+            uiState.folderContent?.parent != null -> {
 
                 val parentPath = uiState.folderContent!!.parent.path
 
@@ -773,15 +783,15 @@ fun AlbumScreen(
                                         expanded = expanded1,
                                         onDismissRequest = { expanded1 = false },
                                         modifier = Modifier
-                                            .width(240.dp) // 控制整体宽度
+                                            .width(280.dp)
                                             .background(Color.White)
-                                            .padding(horizontal = 18.dp, vertical = 4.dp), // 紧凑一点的内边距
+                                            .padding(horizontal = 10.dp, vertical = 4.dp), // 紧凑一点的内边距
                                         offset = DpOffset(x = (48.dp), y = 0.dp) // 负的 x 偏移贴右
 
                                     ) {
                                         Column(modifier = Modifier.padding(4.dp)) {
                                             // 第一组：过滤模式
-                                            Text("过滤模式", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                            Text("过滤模式", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Spacer(modifier = Modifier.height(6.dp))
 
                                             val modes = listOf(
@@ -792,78 +802,83 @@ fun AlbumScreen(
                                                 Mode.VIDEO to "视频"
                                             )
 
-                                            // 每行最多三个标签
-                                            modes.chunked(3).forEach { rowModes ->
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    rowModes.forEach { (mode, label) ->
-                                                        Button(
-                                                            onClick = {
-                                                                fileMode = mode
-                                                                expanded1 = false
+                                            FlowRow(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                modes.forEach { (mode, label) ->
+                                                    Button(
+                                                        onClick = {
+                                                            fileMode = mode
+                                                            modePrefs.edit {
+                                                                putString("file_mode", fileMode.value)
+                                                            }
+                                                            expanded1 = false
 
-                                                                currentToast?.cancel()
-                                                                currentToast = Toast.makeText(context, "当前模式: $label", Toast.LENGTH_SHORT)
-                                                                currentToast?.show()
+                                                            currentToast?.cancel()
+                                                            currentToast = Toast.makeText(
+                                                                context,
+                                                                "当前模式: $label",
+                                                                Toast.LENGTH_SHORT
+                                                            )
+                                                            currentToast?.show()
 
-                                                                scope.launch { refreshFolder(uiState.currentPath) }
-                                                            },
-                                                            colors = ButtonDefaults.buttonColors(
-                                                                containerColor = if (fileMode == mode) MaterialTheme.colorScheme.primary else Color.LightGray,
-                                                                contentColor = if (fileMode == mode) Color.White else Color.Black
-                                                            ),
-                                                            shape = RoundedCornerShape(10.dp), // ✅ 设置圆角大小
-                                                            modifier = Modifier
-                                                                .wrapContentHeight()
-                                                                .height(28.dp), // 紧凑高度
-                                                            contentPadding = PaddingValues(vertical = 0.dp)
-                                                        ) {
-                                                            Text(label, fontSize = 12.sp)
-                                                        }
-                                                    }
-
-                                                    if (rowModes.size < 3) {
-                                                        repeat(3 - rowModes.size) { Spacer(modifier = Modifier.weight(1f)) }
+                                                            scope.launch { refreshFolder(uiState.currentPath) }
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = if (fileMode == mode)
+                                                                MaterialTheme.colorScheme.primary
+                                                            else Color.LightGray,
+                                                            contentColor = if (fileMode == mode)
+                                                                Color.White
+                                                            else Color.Black
+                                                        ),
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        modifier = Modifier
+                                                            .height(28.dp),
+                                                        contentPadding = PaddingValues(vertical = 0.dp)
+                                                    ) {
+                                                        Text(label, fontSize = 12.sp)
                                                     }
                                                 }
-                                                Spacer(modifier = Modifier.height(6.dp))
                                             }
 
                                             Spacer(modifier = Modifier.height(2.dp))
 
                                             // 第二组：图片列数
-                                            Text("图片列数", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                            Text("图片列数", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Spacer(modifier = Modifier.height(6.dp))
 
-                                            val cols = listOf(2, 3, 4)
+                                            val cols = listOf(2, 3, 4, 5, 6)
 
-                                            Row(
+                                            FlowRow(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 cols.forEach { col ->
                                                     Button(
                                                         onClick = {
                                                             imageColumns = col
                                                             modePrefs.edit {
-                                                                putInt(
-                                                                    "image_columns",
-                                                                    col
-                                                                )
+                                                                putInt("image_columns", col)
                                                             }
                                                             expanded1 = false
                                                         },
                                                         colors = ButtonDefaults.buttonColors(
-                                                            containerColor = if (imageColumns == col) MaterialTheme.colorScheme.primary else Color.LightGray,
-                                                            contentColor = if (imageColumns == col) Color.White else Color.Black
+                                                            containerColor = if (imageColumns == col)
+                                                                MaterialTheme.colorScheme.primary
+                                                            else
+                                                                Color.LightGray,
+                                                            contentColor = if (imageColumns == col)
+                                                                Color.White
+                                                            else
+                                                                Color.Black
                                                         ),
-                                                        shape = RoundedCornerShape(10.dp), // ✅ 设置圆角大小
-                                                        modifier = Modifier
-                                                            .wrapContentHeight()
-                                                            .height(28.dp),
-                                                        contentPadding = PaddingValues(vertical = 0.dp)
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        modifier = Modifier.height(28.dp),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                                                     ) {
                                                         Text("${col}列", fontSize = 12.sp)
                                                     }
@@ -873,7 +888,7 @@ fun AlbumScreen(
                                             Spacer(modifier = Modifier.height(8.dp))
 
                                             // 第二组：图片列数
-                                            Text("图片排序方式", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                            Text("图片排序方式", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Spacer(modifier = Modifier.height(6.dp))
 
                                             val sortModes = listOf("从旧到新", "从新到旧")
@@ -913,7 +928,7 @@ fun AlbumScreen(
 
                                             Spacer(modifier = Modifier.height(8.dp))
 
-                                            Text("目录排序方式", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                            Text("目录排序方式", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                             Spacer(modifier = Modifier.height(6.dp))
 
                                             val folderModes = listOf("按时间", "按名称")
@@ -1018,6 +1033,8 @@ fun AlbumScreen(
                             .pointerInput(Unit) {
                                 detectTapGestures(
                                     onLongPress = {
+                                        viewModel.setCurrentPath("素材")
+                                        savePath("素材", "素材")
                                         onLockClick()
                                     }
                                 )
@@ -1051,30 +1068,30 @@ fun AlbumScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
-                .pointerInput(currentTab, multiSelectMode) {
-
-                    if (!multiSelectMode) { // 多选模式下不响应滑动
-                        detectHorizontalDragGestures { change, dragAmount ->
-                            val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
-                            scope.launch {
-                                val newIndex = when {
-                                    dragAmount >80 && currentIndex > 0 -> currentIndex - 1
-                                    dragAmount < -80 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
-                                    else -> return@launch
-                                }
-
-                                val (tabKey, defaultPath) = pathOptions[newIndex]
-
-                                switchTab(
-                                    newTab = tabKey,
-                                    defaultPath = defaultPath,
-                                    uiState = uiState
-                                )
-                            }
-
-                        }
-                    }
-                }
+//                .pointerInput(currentTab, multiSelectMode) {
+//
+//                    if (!multiSelectMode) { // 多选模式下不响应滑动
+//                        detectHorizontalDragGestures { change, dragAmount ->
+//                            val currentIndex = pathOptions.indexOfFirst { it.first == currentTab }
+//                            scope.launch {
+//                                val newIndex = when {
+//                                    dragAmount >60 && currentIndex > 0 -> currentIndex - 1
+//                                    dragAmount < -60 && currentIndex < pathOptions.size - 1 -> currentIndex + 1
+//                                    else -> return@launch
+//                                }
+//
+//                                val (tabKey, defaultPath) = pathOptions[newIndex]
+//
+//                                switchTab(
+//                                    newTab = tabKey,
+//                                    defaultPath = defaultPath,
+//                                    uiState = uiState
+//                                )
+//                            }
+//
+//                        }
+//                    }
+//                }
         ) {
 
 
@@ -1211,6 +1228,29 @@ fun AlbumScreen(
                                         }
                                     }
 
+                                    val checkBoxSize = when (imageColumns) {
+                                        2 -> 26.dp
+                                        3 -> 22.dp
+                                        4 -> 20.dp
+                                        5 -> 18.dp
+                                        6 -> 16.dp
+                                        else -> 18.dp
+                                    }
+
+                                    val iconSize = checkBoxSize * 0.75f
+
+                                    val tagHeight = when (imageColumns) {
+                                        2 -> 22.dp
+                                        3 -> 20.dp
+                                        4 -> 18.dp
+                                        5 -> 16.dp
+                                        6 -> 14.dp
+                                        else -> 16.dp
+                                    }
+
+                                    val tagHorizontalPadding = tagHeight * 0.35f
+                                    val tagVerticalPadding = tagHeight * 0.1f
+                                    val tagCorner = tagHeight * 0.25f
 
                                     LazyVerticalGrid(
                                         state = gridState,
@@ -1350,7 +1390,7 @@ fun AlbumScreen(
                                                                 shadowElevation = 6.dp,
                                                                 shape = RoundedCornerShape(8.dp),
                                                                 color = Color(0xFFEFEFEF), // ✅ 指定背景色，避免默认白底透出
-                                                                modifier = Modifier.size(48.dp)
+                                                                modifier = Modifier.size(checkBoxSize * 2)
                                                             ) {
                                                                 Image(
                                                                     painter = painterResource(id = R.drawable.folder),
@@ -1360,16 +1400,17 @@ fun AlbumScreen(
                                                                 )
                                                             }
 
-                                                            Spacer(modifier = Modifier.height(12.dp))
+                                                            Spacer(modifier = Modifier.height(if (imageColumns < 4) 10.dp else 6.dp))
+
                                                             Text(
                                                                 text = file.name,
-                                                                maxLines = 2,
+                                                                maxLines = if (imageColumns < 3) 3 else 2,
                                                                 overflow = TextOverflow.Ellipsis,
                                                                 style = MaterialTheme.typography.bodySmall,
                                                                 textAlign = TextAlign.Center,
                                                                 modifier = Modifier
                                                                     .fillMaxWidth()
-                                                                    .height(36.dp)
+                                                                    .height(checkBoxSize* 2)
                                                                     .padding(horizontal = 8.dp)
                                                             )
                                                         }
@@ -1422,25 +1463,23 @@ fun AlbumScreen(
                                                                     AsyncImage(
                                                                         model = ImageRequest.Builder(context)
                                                                             .data(file.thumb_url ?: file.net_url)
-                                                                            .diskCacheKey(file.file_url ?: file.path)
+                                                                            .diskCacheKey(file.thumb_url ?: file.net_url)
                                                                             .diskCachePolicy(CachePolicy.ENABLED)
                                                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                                                             .networkCachePolicy(CachePolicy.ENABLED)
+                                                                            .size(Size.ORIGINAL)
                                                                             .crossfade(true)
                                                                             .build(),
                                                                         contentDescription = file.name,
                                                                         contentScale = ContentScale.Crop,
                                                                         modifier = Modifier
                                                                             .fillMaxSize()
-                                                                            .clip(
-                                                                                RoundedCornerShape(
-                                                                                    0.dp
-                                                                                )
-                                                                            )
+                                                                            .clip(RoundedCornerShape(0.dp))
                                                                             .background(Color.LightGray)
                                                                     )
                                                                 }
                                                             }
+
                                                             val pathIsSelect = uiState.selectedPaths.contains(path)
 
                                                             if (pathIsSelect) {
@@ -1451,17 +1490,16 @@ fun AlbumScreen(
                                                                             Color.White.copy(
                                                                                 alpha = 0.3f
                                                                             )
-                                                                        ) // 半透明白色遮罩
+                                                                        )
                                                                 )
                                                             }
 
                                                             if (multiSelectMode) {
-
                                                                 Box(
                                                                     modifier = Modifier
                                                                         .align(Alignment.TopEnd)
                                                                         .padding(4.dp)
-                                                                        .size(20.dp)
+                                                                        .size(checkBoxSize)
                                                                         .border(
                                                                             width = 2.dp,
                                                                             color = Color.White, // 蓝色边框
@@ -1486,16 +1524,17 @@ fun AlbumScreen(
                                                                             Icons.Default.Check,
                                                                             contentDescription = "Selected",
                                                                             tint = Color.White,
-                                                                            modifier = Modifier.size(16.dp),
+                                                                            modifier = Modifier.size(iconSize),
                                                                         )
                                                                     }
                                                                 }
                                                             }
 
                                                             if (isVideo) {
+
                                                                 Surface(
                                                                     color = Color.Black.copy(alpha = 0.6f),
-                                                                    shape = RoundedCornerShape(bottomStart = 4.dp),
+                                                                    shape = RoundedCornerShape(tagCorner),
                                                                     modifier = Modifier
                                                                         .align(Alignment.TopStart)
                                                                         .padding(2.dp)
@@ -1503,13 +1542,16 @@ fun AlbumScreen(
                                                                     Text(
                                                                         text = "MP4",
                                                                         color = Color.White,
-                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                                            fontSize = (tagHeight.value * 0.55f).sp
+                                                                        ),
                                                                         modifier = Modifier.padding(
-                                                                            horizontal = 4.dp,
-                                                                            vertical = 2.dp
+                                                                            horizontal = tagHorizontalPadding,
+                                                                            vertical = tagVerticalPadding
                                                                         )
                                                                     )
                                                                 }
+
                                                             }
                                                         }
                                                     }
@@ -1645,28 +1687,39 @@ fun AlbumScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxSize()
-                                .combinedClickable(
-                                    enabled = !multiSelectMode,
-
-                                    onClick = {
-                                        // 单击：切 Tab
-                                        scope.launch {
-                                            switchTab(
-                                                newTab = displayName,
-                                                defaultPath = defaultPath,
-                                                uiState = uiState
-                                            )
-                                        }
-                                    },
-
-                                    onDoubleClick = {
-                                        // 双击：回到顶部
-                                        scope.launch {
-                                            gridState.animateScrollToItem(0)
-                                            refreshFolder(uiState.currentPath)
-                                        }
+                                .clickable(
+                                    enabled = !multiSelectMode
+                                ) {
+                                    scope.launch {
+                                        switchTab(
+                                            newTab = displayName,
+                                            defaultPath = defaultPath,
+                                            uiState = uiState
+                                        )
                                     }
-                                )
+                                }
+//                                .combinedClickable(
+//                                    enabled = !multiSelectMode,
+//
+//                                    onClick = {
+//                                        // 单击：切 Tab
+//                                        scope.launch {
+//                                            switchTab(
+//                                                newTab = displayName,
+//                                                defaultPath = defaultPath,
+//                                                uiState = uiState
+//                                            )
+//                                        }
+//                                    },
+//
+//                                    onDoubleClick = {
+//                                        // 双击：回到顶部
+//                                        scope.launch {
+//                                            gridState.animateScrollToItem(0)
+//                                            refreshFolder(uiState.currentPath)
+//                                        }
+//                                    }
+//                                )
 
                         ) {
                             Text(
@@ -1907,10 +1960,9 @@ fun AlbumScreen(
     if (showNudeSheet) {
         NudeModeBottomSheet(
             onDismiss = { showNudeSheet = false },
-            onCreativeModeClick = { params ->
+            onCreativeModeClick = { params, filterUnmatched ->
                 scope.launch {
                     isLoading = true
-
                     try {
                         performNudeGeneration(
                             context = context,
@@ -1926,7 +1978,8 @@ fun AlbumScreen(
                                 multiSelectMode = false
                             },
                             creativeMode = true,
-                            params = params
+                            params = params,
+                            filterUnmatched = filterUnmatched
                         )
                     } finally {
                         delay(120)
@@ -2020,6 +2073,7 @@ fun AlbumScreen(
                                 Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
                                 return@IconActionButton
                             }
+
                             val selectedPaths = uiState.selectedPaths
 
                             if (selectedPaths.isEmpty()) {
@@ -2131,6 +2185,7 @@ fun AlbumScreen(
                                 Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
                                 return@IconActionButton
                             }
+
                             if (uiState.selectedPaths.isNotEmpty()) {
                                 generateImageUrls = uiState.selectedPaths.mapNotNull { path ->
                                     folderContent?.files?.find { it.file_url == path || it.path == path }?.file_url
@@ -2350,6 +2405,33 @@ fun AlbumScreen(
                                     showMoreSheet = false
                                 }
                             }
+
+//                            itemsList.add {
+//                                IconActionButton(
+//                                    iconPainter = painterResource(id = R.drawable.word),
+//                                    tint = Color.Black,
+//                                    label = "图片2",
+//                                    contentDescription = "图片2",
+//                                    iconSize = 22.dp,
+//                                    itemWidth = itemWidth,
+//                                ) {
+//                                    val selected = uiState.selectedPaths
+//
+//                                    if (selected.size != 1) {
+//                                        Toast.makeText(context, "请选择且仅选择一张图片", Toast.LENGTH_SHORT).show()
+//                                        return@IconActionButton
+//                                    }
+//
+//                                    if (hasMp4File(selected)) {
+//                                        Toast.makeText(context, "视频无法进行此操作", Toast.LENGTH_SHORT).show()
+//                                        return@IconActionButton
+//                                    }
+//
+//                                    image2Path = selected.first()
+//                                    Toast.makeText(context, "已将该图片设置为图片2", Toast.LENGTH_SHORT).show()
+//                                    showMoreSheet = false
+//                                }
+//                            }
 
                             // --- 按钮列表拆成每行 3 个 ---
                             itemsList.chunked(3).forEach { rowItems ->

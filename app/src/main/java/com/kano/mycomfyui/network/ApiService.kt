@@ -68,8 +68,10 @@ interface ApiService {
     @GET("/api/tasks")
     suspend fun getTasks(
         @Query("page") page: Int = 1,
-        @Query("size") size: Int = 20
+        @Query("size") size: Int = 20,
+        @Query("status") status: String? = null
     ): List<TaskInfo>
+
 
     data class ClearTaskResponse(
         val status: String,
@@ -185,4 +187,17 @@ interface ApiService {
     suspend fun getFolders(
         @Query("parent_path") parent_path: String
     ): List<Folder>
+
+    /** 扫描数据库并生成缩略图（后台执行） */
+    @POST("/api/generate_thumbnails")
+    suspend fun generateThumbnails(
+        @Query("max_workers") maxWorkers: Int = 5
+    ): ResponseBody
+
+
+    @GET("/api/logs")
+    suspend fun getLogs(
+        @Query("limit") limit: Int = 200
+    ): List<String>
+
 }

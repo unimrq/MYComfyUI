@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,8 +54,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import coil.size.Size
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.network.RetrofitClient
 import kotlinx.coroutines.launch
@@ -81,29 +84,31 @@ fun SettingsScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
 
-            ServerStatusCard()
+            ServerStatusCard(navController)
 
             SettingsCard(
                 title = "地址设置",
-                iconVector = Icons.Default.Home
+                iconSize = 28.dp,
+                iconPainter = painterResource(R.drawable.world)
             ) {
                 navController.navigate("address_settings")
             }
 
             SettingsCard(
-                title = "提示词",
-                iconPainter = painterResource(R.drawable.word)
-            ) {
-                navController.navigate("prompt_list")
-            }
-
-            SettingsCard(
-                title = "Qwen设置",
-                iconVector = Icons.Default.Build
+                title = "模型设置",
+                iconSize = 22.dp,
+                iconPainter = painterResource(R.drawable.pen)
             ) {
                 navController.navigate("qwen")
             }
 
+            SettingsCard(
+                title = "提示词模板",
+                iconSize = 24.dp,
+                iconPainter = painterResource(R.drawable.word)
+            ) {
+                navController.navigate("prompt_list")
+            }
 
         }
     }
@@ -111,12 +116,12 @@ fun SettingsScreen(navController: NavController) {
 
 @Composable
 fun SettingsCard(
-    modifier: Modifier = Modifier, // ✅ 新增参数，默认空
+    modifier: Modifier = Modifier,
     title: String,
     iconPainter: Painter? = null,
     iconVector: ImageVector? = null,
+    iconSize: Dp = 20.dp,
     onClick: () -> Unit,
-
 ) {
     Card(
         modifier = modifier
@@ -130,34 +135,37 @@ fun SettingsCard(
             modifier = Modifier.padding(16.dp)
         ) {
 
-            when {
-                iconVector != null -> {
-                    Icon(
-                        imageVector = iconVector,
-                        contentDescription = title,
-                        modifier = Modifier.size(24.dp),
-                        tint = Color(0xFF3965B0) // 你想要的颜色
-                    )
+            // ✅ 固定宽度图标区域
+            Box(
+                modifier = Modifier.width(40.dp), // ← 固定区域宽度
+                contentAlignment = Alignment.Center
+            ) {
 
-                }
-
-                iconPainter != null -> {
-                    Image(
-                        painter = iconPainter,
-                        contentDescription = title,
-                        modifier = Modifier.size(24.dp),
-                        colorFilter = ColorFilter.tint(
-                            Color(0xFF3965B0),
-                            blendMode = BlendMode.SrcIn
+                when {
+                    iconVector != null -> {
+                        Icon(
+                            imageVector = iconVector,
+                            contentDescription = title,
+                            modifier = Modifier.size(iconSize),
+                            tint = Color(0xFF3965B0)
                         )
-                    )
+                    }
 
+                    iconPainter != null -> {
+                        Image(
+                            painter = iconPainter,
+                            contentDescription = title,
+                            modifier = Modifier.size(iconSize),
+                            colorFilter = ColorFilter.tint(
+                                Color(0xFF3965B0),
+                                blendMode = BlendMode.SrcIn
+                            )
+                        )
+                    }
                 }
             }
 
-            if (iconVector != null || iconPainter != null) {
-                Spacer(modifier = Modifier.width(12.dp))
-            }
+            Spacer(modifier = Modifier.width(12.dp))
 
             Text(
                 text = title,
@@ -168,6 +176,7 @@ fun SettingsCard(
 }
 
 
+
 enum class ServerStatus {
     LOADING,
     ONLINE,
@@ -176,26 +185,23 @@ enum class ServerStatus {
 
 
 @Composable
-fun ServerStatusCard() {
+fun ServerStatusCard(navController: NavController) {
     var status by remember { mutableStateOf(ServerStatus.LOADING) }
     val api = RetrofitClient.getApi()
-    var showActions by remember { mutableStateOf(false) } // 控制面板显示
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
 
     LaunchedEffect(Unit) {
         status = try {
             val alive = try {
                 api.getServerStatus().alive
             } catch (e: Exception) {
-                Log.e("debug", e.message.toString())
+//                Log.e("debug", e.message.toString())
                 false
             }
 //            Log.d("getServerStatus", alive.toString())
             if (alive) ServerStatus.ONLINE else ServerStatus.OFFLINE
         } catch (e: Exception) {
-            Log.e("debug", e.message.toString())
+//            Log.e("debug", e.message.toString())
             ServerStatus.OFFLINE
         }
     }
@@ -222,10 +228,7 @@ fun ServerStatusCard() {
                     }
                 },
                 onLongClick = {
-                    // 长按显示或隐藏面板
-                    if (status != ServerStatus.LOADING) {
-                        showActions = !showActions
-                    }
+                    navController.navigate("server_info")
                 }
             ),
         colors = CardDefaults.cardColors(
@@ -272,61 +275,5 @@ fun ServerStatusCard() {
         }
     }
 
-    // 弹出的操作面板
-    if (showActions) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp) // 按钮间距
-            ) {
-                // 扫描按钮
-                SettingsCard(
-                    title = "全部扫描",
-                    iconVector = Icons.Default.Refresh,
-                    onClick = {
-                        scope.launch {
-                            try {
-                                api.scanFolder()
-                                Toast.makeText(context, "扫描已开始", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "扫描失败：${e.message}", Toast.LENGTH_SHORT).show()
-                            } finally {
-                                showActions = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f) // 两个按钮等宽
-                )
-
-                // 检测按钮
-                SettingsCard(
-                    title = "全部检测",
-                    iconVector = Icons.Default.Warning,
-                    onClick = {
-                        scope.launch {
-                            try {
-                                api.detectFolder()
-                                Toast.makeText(context, "检测已开始", Toast.LENGTH_SHORT).show()
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "检测失败：${e.message}", Toast.LENGTH_SHORT).show()
-                            } finally {
-                                showActions = false
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f) // 两个按钮等宽
-                )
-            }
-        }
-    }
 }
 
