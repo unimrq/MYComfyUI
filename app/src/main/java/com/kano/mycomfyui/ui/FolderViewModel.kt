@@ -16,7 +16,9 @@ enum class Mode(val value: String) {
     ORIGIN("ORIGIN"),    // 分组后取名称最短的一张
     NUDE("NUDE"),        // 分组后取最短且名称含 "-脱衣"
     EDIT("EDIT"),        // 只取名称含 "-修图"
-    VIDEO("VIDEO");        // 只取名称含 "-修图"
+    VIDEO("VIDEO"),        // 只取名称含 "-修图"
+    QUALITY("QUALITY"),
+    ZOOM("ZOOM");
 
     companion object {
         fun fromValue(value: String?): Mode {
@@ -40,10 +42,9 @@ fun sortPreviewableFiles(
         ) == true
 
     fun getCoreName(name: String): String {
-        var base = name.substringBeforeLast(".")
-        base = base.substringBefore("-脱衣")
-        base = base.substringBefore("-修图")
-        return base
+        return name
+            .substringBeforeLast(".")
+            .replace(Regex("-(脱衣|修图|放大|质感).*"), "")
     }
 
     fun FileInfo.parseTime(): Long =
@@ -97,7 +98,7 @@ fun sortPreviewableFiles(
                     )
                 }
         }
-        
+
         Mode.ORIGIN -> originList
 
         Mode.NUDE -> {
@@ -118,6 +119,18 @@ fun sortPreviewableFiles(
         Mode.EDIT -> {
             validFiles
                 .filter { it.name.contains("-修图") }
+                .sortedWith(timeComparator)
+        }
+
+        Mode.QUALITY -> {
+            validFiles
+                .filter { it.name.contains("-质感") }
+                .sortedWith(timeComparator)
+        }
+
+        Mode.ZOOM -> {
+            validFiles
+                .filter { it.name.contains("-放大") }
                 .sortedWith(timeComparator)
         }
 

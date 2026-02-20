@@ -18,6 +18,8 @@ data class FileInfo(
         get() = file_url?.let { "${ServerConfig.baseUrl}$it" }
     val thumb_url: String?
         get() = thumbnail_url?.let { "${ServerConfig.baseUrl}$it" }
+    val download_url: String?
+        get() = net_url?.replace("/photos/", "/photos-raw/")
 }
 
 data class FolderContent(

@@ -74,8 +74,10 @@ fun ImageDetailScreen(
     sortedFiles: List<FileInfo>,
     initialIndex: Int = 0,
     onImageClick: () -> Unit,
+    isTopBarVisible: Boolean,
+    showRawImage: Boolean,
     onSelectedFileChange: ((String) -> Unit)? = null,
-    visibleCoordsMap: SnapshotStateMap<String, LayoutCoordinates>,  // ✅ 新增
+    visibleCoordsMap: SnapshotStateMap<String, LayoutCoordinates>,
     onRequestClose: () -> Unit,
     onCloseAnimationEnd: () -> Unit,
 ) {
@@ -83,7 +85,6 @@ fun ImageDetailScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
-    var isTopBarVisible by remember { mutableStateOf(true) }
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -430,7 +431,6 @@ fun ImageDetailScreen(
                     detectTapGestures(
                         onTap = {
                             onImageClick()
-                            isTopBarVisible = !isTopBarVisible
                         },
                         onDoubleTap = {
                             if (scale > 1f) {
@@ -517,7 +517,6 @@ fun ImageDetailScreen(
                 pageSpacing = 8.dp,
                 userScrollEnabled = userScrollEnabled
             ) { page ->
-                var showRawImage by remember(page) { mutableStateOf(false) }
                 val currentFile = sortedFiles.getOrNull(page)
 
                 val thumbPath = currentFile?.thumb_url
@@ -526,7 +525,6 @@ fun ImageDetailScreen(
                 } else {
                     currentFile?.net_url
                 }
-
 
                 LaunchedEffect(pagerState) {
                     snapshotFlow { pagerState.currentPage }
@@ -658,41 +656,41 @@ fun ImageDetailScreen(
 
                     )
 
-                    IconButton(
-                        onClick = { showRawImage = !showRawImage },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 12.dp, top = 96.dp)
-                            .size(32.dp).graphicsLayer { alpha = 0f }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(
-                                    color = Color.White.copy(alpha = 0f),
-                                    shape = CircleShape
-                                )
-                            ,
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (showRawImage) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.visibility),
-                                    contentDescription = "查看原图",
-                                    modifier = Modifier.size(22.dp),
-                                    colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
-                                )
-                            } else {
-                                Image(
-                                    painter = painterResource(R.drawable.visibility_off),
-                                    contentDescription = "查看原图",
-                                    modifier = Modifier.size(24.dp),
-                                    colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
-                                )
-                            }
-
-                        }
-                    }
+//                    IconButton(
+//                        onClick = { showRawImage = !showRawImage },
+//                        modifier = Modifier
+//                            .align(Alignment.TopEnd)
+//                            .padding(end = 12.dp, top = 96.dp)
+//                            .size(32.dp).graphicsLayer { alpha = 0f }
+//                    ) {
+//                        Box(
+//                            modifier = Modifier
+//                                .size(28.dp)
+//                                .background(
+//                                    color = Color.White.copy(alpha = 0f),
+//                                    shape = CircleShape
+//                                )
+//                            ,
+//                            contentAlignment = Alignment.Center
+//                        ) {
+//                            if (showRawImage) {
+//                                Image(
+//                                    painter = painterResource(id = R.drawable.visibility),
+//                                    contentDescription = "查看原图",
+//                                    modifier = Modifier.size(22.dp),
+//                                    colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+//                                )
+//                            } else {
+//                                Image(
+//                                    painter = painterResource(R.drawable.visibility_off),
+//                                    contentDescription = "查看原图",
+//                                    modifier = Modifier.size(24.dp),
+//                                    colorFilter = if (isTopBarVisible) ColorFilter.tint(Color.Black) else ColorFilter.tint(Color.White)
+//                                )
+//                            }
+//
+//                        }
+//                    }
                 }
             }
 

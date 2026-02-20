@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.kano.mycomfyui.R
 import com.kano.mycomfyui.network.RetrofitClient
+import java.text.Collator
+import java.util.Locale
 
 
 @Composable
@@ -56,9 +58,16 @@ fun FolderPickerDialog(
     // 获取文件夹列表
     suspend fun loadFolders(path: String) {
         try {
-//            Log.d("Folders", "path: $path")
             val response = RetrofitClient.getApi().getFolders(parent_path = path)
-            folderList = response
+
+            val collator = Collator.getInstance(Locale.CHINA).apply {
+                strength = Collator.PRIMARY  // 忽略大小写/声调
+            }
+
+            folderList = response.sortedWith { a, b ->
+                collator.compare(a.name, b.name)
+            }
+
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(context, "获取文件夹失败", Toast.LENGTH_SHORT).show()

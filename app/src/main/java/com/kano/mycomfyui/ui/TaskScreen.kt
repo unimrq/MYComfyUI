@@ -1,8 +1,10 @@
 package com.kano.mycomfyui.ui
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +22,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -67,7 +71,10 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -617,6 +624,9 @@ fun TaskInfoSection(
     onDelete: (TaskInfo) -> Unit = {},
     onPinTop: (TaskInfo) -> Unit = {}
 ) {
+    val scrollState = rememberScrollState()
+
+
     Column(
         modifier = Modifier
             .fillMaxWidth(),
@@ -642,11 +652,11 @@ fun TaskInfoSection(
             // 状态圆点
             Box(
                 modifier = Modifier
-                    .size(12.dp)
+                    .size(16.dp)
                     .background(statusColor, CircleShape)
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             // 状态文字
             val statusEnum = TaskStatus.fromValue(task.status)
@@ -678,61 +688,78 @@ fun TaskInfoSection(
 
             IconButton(onClick = { onPinTop(task) }) {
                 Icon(
-                    painter = painterResource(id = R.drawable.top),
+                    painter = painterResource(id = R.drawable.sort),
                     contentDescription = "置顶",
-                    modifier = Modifier.height(22.dp)
+                    modifier = Modifier.height(18.dp)
                 )
             }
         }
 
         Divider()
 
-        // ===== 任务类型 =====
-        InfoRow(
-            label = "任务类型",
-            value = task.task_type ?: "-"
-        )
-
-        // ===== 任务参数 =====
-        if (!task.text.isNullOrBlank()) {
+        Column(
+            modifier = Modifier
+                .height(160.dp)
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // ===== 任务类型 =====
             InfoRow(
-                label = "任务参数",
-                value = task.text,
-                multiline = true
+                label = "任务类型",
+                value = task.task_type ?: "-"
             )
+
+            // ===== 任务参数 =====
+            if (!task.text.isNullOrBlank()) {
+                InfoRow(
+                    label = "任务参数",
+                    value = task.text,
+                    multiline = true
+                )
+            }
+
+            if (!task.result.isNullOrBlank()) {
+                InfoRow(
+                    label = "执行结果",
+                    value = task.result,
+                    multiline = true,
+                )
+            }
+
+
+            // ===== 错误信息 =====
+            if (!task.error.isNullOrBlank()) {
+                InfoRow(
+                    label = "错误信息",
+                    value = task.error,
+                    multiline = true,
+                    valueColor = MaterialTheme.colorScheme.error
+                )
+            }
+
+            // ===== 时间 =====
+            task.start_time?.let {
+                InfoRow(
+                    label = "任务加入时间",
+                    value = formatTime(it)
+                )
+            }
+
+            task.run_time?.let {
+                InfoRow(
+                    label = "任务开始时间",
+                    value = formatTime(it)
+                )
+            }
+
+            task.end_time?.let {
+                InfoRow(
+                    label = "任务结束时间",
+                    value = formatTime(it)
+                )
+            }
         }
 
-        // ===== 错误信息 =====
-        if (!task.error.isNullOrBlank()) {
-            InfoRow(
-                label = "错误信息",
-                value = task.error,
-                multiline = true,
-                valueColor = MaterialTheme.colorScheme.error
-            )
-        }
-
-        // ===== 时间 =====
-        task.start_time?.let {
-            InfoRow(
-                label = "任务加入时间",
-                value = formatTime(it)
-            )
-        }
-
-        task.run_time?.let {
-            InfoRow(
-                label = "任务开始时间",
-                value = formatTime(it)
-            )
-        }
-
-        task.end_time?.let {
-            InfoRow(
-                label = "任务结束时间",
-                value = formatTime(it)
-            )
-        }
     }
 }
 
@@ -744,18 +771,31 @@ fun InfoRow(
     multiline: Boolean = false,
     valueColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Column {
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             color = valueColor,
-            maxLines = if (multiline) Int.MAX_VALUE else 1,
-            overflow = TextOverflow.Ellipsis
+            maxLines = if (multiline) 5 else 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = {
+                        clipboardManager.setText(AnnotatedString(value))
+                        Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                    }
+                )
         )
     }
 }
